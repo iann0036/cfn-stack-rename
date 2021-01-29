@@ -1,4 +1,4 @@
-# CloudFormation Rename Stack
+# CloudFormation Stack Rename
 
 The following script will programmatically perform the following steps:
 
