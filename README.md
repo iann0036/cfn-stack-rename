@@ -1,4 +1,4 @@
-# CloudFormation Rename Stack
+# CloudFormation Stack Rename
 
 The following script will programmatically perform the following steps:
 
@@ -7,7 +7,7 @@ The following script will programmatically perform the following steps:
 * Delete the stack, whilst retaining the resource
 * Create a new stack, importing the resources with their current state back into the stack
 
-Note that not all stacks will support a stack rename, only those that exclusively contain importable types.
+As the stack is recreated entirely, the history of the stack will not be retained. Note that not all stacks will support a stack rename, only those that exclusively contain importable types.
 
 > :exclamation: This script is not thoroughly tested and you should attempt to use this on a non-critical resource before real-world usage as some resources refuse to re-import for a variety of reasons. I am not responsible for your data loss.
 
