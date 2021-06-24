@@ -1318,7 +1318,10 @@ eligible_import_resources = { # from Former2
     }
 }
 
-if len(sys.argv) == 4:
+if len(sys.argv) == 5:
+    session = boto3.session.Session(profile_name=sys.argv[4])
+    cfnclient = session.client('cloudformation', region_name=sys.argv[3])
+elif len(sys.argv) == 4:
     cfnclient = boto3.client('cloudformation', region_name=sys.argv[3])
 elif len(sys.argv) == 3:
     cfnclient = boto3.client('cloudformation')

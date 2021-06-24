@@ -23,6 +23,12 @@ or to specify a region
 python3 index.py OldStackName NewStackName us-east-1
 ```
 
+or to specify a region and profile name
+
+```
+python3 index.py OldStackName NewStackName us-east-1 myprofile
+```
+
 ### Supported Resources
 
 The following resources are supported for stack rename (if other resources are within the stack, the script will refuse to continue):
