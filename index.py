@@ -1349,6 +1349,11 @@ original_template = cfnclient.get_template(
     TemplateStage='Processed'
 )['TemplateBody']
 
+original_resources = cfnclient.describe_stack_resources(
+    StackName=original_stack_id,
+    TemplateStage='Processed'
+)['StackResources']
+
 if not isinstance(original_template, str):
     original_template = json.dumps(dict(original_template)) # OrderedDict
 
@@ -1403,6 +1408,15 @@ template = json.loads(to_json(original_template))
 # check all is in drift results
 for k, v in template['Resources'].items():
     found = False
+    resource_exists = False
+
+    for deployed_resource in original_resources:
+        if resource_drifts[i]['LogicalResourceId'] == deployed_resource['LogicalResourceId']:
+            resource_exists = True
+
+    if not resource_exists and 'Condition' in template['Resources'][k]: # skip conditionals
+        continue
+
     for i in range(len(resource_drifts)):
         if resource_drifts[i]['LogicalResourceId'] == k:
             found = True
