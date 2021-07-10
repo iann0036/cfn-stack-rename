@@ -1411,7 +1411,7 @@ for k, v in template['Resources'].items():
     resource_exists = False
 
     for deployed_resource in original_resources:
-        if resource_drifts[i]['LogicalResourceId'] == deployed_resource['LogicalResourceId']:
+        if k == deployed_resource['LogicalResourceId']:
             resource_exists = True
 
     if not resource_exists and 'Condition' in template['Resources'][k]: # skip conditionals
