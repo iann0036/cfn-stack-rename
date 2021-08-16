@@ -1350,8 +1350,7 @@ original_template = cfnclient.get_template(
 )['TemplateBody']
 
 original_resources = cfnclient.describe_stack_resources(
-    StackName=original_stack_id,
-    TemplateStage='Processed'
+    StackName=original_stack_id
 )['StackResources']
 
 if not isinstance(original_template, str):
