@@ -1497,6 +1497,8 @@ waiter.wait(
 
 print("Recreating stack with imported resources...")
 
+template.pop('Outputs', None)
+
 change_set_name = 'Stack-Rename-' + str(int(time.time()))
 new_stack_id = cfnclient.create_change_set(
     StackName=new_stack_name,
