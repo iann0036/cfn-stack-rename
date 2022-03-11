@@ -103,6 +103,7 @@ The following resources are supported for stack rename (if other resources are w
 * AWS::DevOpsGuru::NotificationChannel
 * AWS::DevOpsGuru::ResourceCollection
 * AWS::DynamoDB::Table
+* AWS::DynamoDB::GlobalTable
 * AWS::EC2::CarrierGateway
 * AWS::EC2::EIP
 * AWS::EC2::FlowLog

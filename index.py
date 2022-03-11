@@ -405,6 +405,11 @@ eligible_import_resources = { # from Former2
             "TableName"
         ]
     },
+    "AWS::DynamoDB::GlobalTable": {
+        "importProperties": [
+            "TableName"
+        ]
+    },
     "AWS::EC2::CarrierGateway": {
         "importProperties": [
             "CarrierGatewayId"
