@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+
+import os
+import stat
+import time
+from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler, cfn_resource_identifiers
+from pprint import pprint
+
+__version__ = '0.1'
+
+
+def main():
+    eligible_import_resources = cfn_resource_identifiers.resources()
+
+    aws_client = aws_handler.AWS(data=config_data)
+    stack_name = options.stack_name
+    new_stack_name = options.new_stack
+    eligible_import_resources = cfn_resource_identifiers.resources()
+
+    aws_client.login()
+    aws_client.cfn_client()
+    stack_desc = aws_client.cfn_describe_stack(stack_name=stack_name)
+    new_stack_desc = aws_client.cfn_describe_stack(stack_name=new_stack_name)
+    stack_template = aws_client.cfn_get_template(stack_name=stack_name)
+    stack_id = stack_desc['StackId']
+    stack_params = []
+    if 'Parameters' in stack_desc:
+        stack_params = stack_desc['Parameters']
+    stack_resources = aws_client.cfn_get_resources(stack_id)
+    stack_drift_id = aws_client.cfn_drift_detect_id(stack_id)
+    stack_drift_status = aws_client.cfn_drift_detect_status(stack_drift_id)
+
+    if not stack_desc:
+        logging.error(f'stack: {stack_name} does not exist aborting')
+        raise ValueError(f'Error {stack_name} does not exist')
+
+    if new_stack_desc:
+        logging.error(f'stack: {new_stack_name} already exists aborting')
+        raise ValueError(f'Error {new_stack_name} already exists')
+
+    while stack_drift_status['DetectionStatus'] == "DETECTION_IN_PROGRESS":
+        time.sleep(5)
+        stack_drift_status = aws_client.cfn_drift_detect_status(stack_drift_id)
+
+    if stack_drift_status['DetectionStatus'] != "DETECTION_COMPLETE" or stack_drift_status[
+        'StackDriftStatus'] != "DRIFTED":
+        if stack_drift_status['StackDriftStatus'] != "IN_SYNC":
+            logging.error("Could not determine drift results")
+            raise ValueError("Drift Results Undetermined")
+
+    pprint(stack_desc)
+    pprint(stack_template)
+
+
+if __name__ == "__main__":
+    name = 'stack_rename'
+    # initialise the command line checker, add in all of the options
+    cmd_opts = command_parser.Commands(name=name, version=__version__)
+    cmd_opts.add_config()
+    cmd_opts.add_aws_auth()
+    cmd_opts.add_aws_config()
+    cmd_opts.add_cloudformation()
+    options, arg_parser = cmd_opts.set_options()
+    # set up the logging
+    logging = custom_logger.colourLog(name=name, config_file=options.config)
+    # set up the io handling
+    io_handle = file_handler.FileHandler()
+    # initialise the config data
+    config_data = io_handle.read_file(options.config)
+    # parse through the provided options make sure everything is set as required
+    # also do init sanity checks and config fixes/population
+    cmd_check = command_checker.CommandCheck(options=options, parser=arg_parser, config_data=config_data)
+    cmd_check.aws()
+    main()
