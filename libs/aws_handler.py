@@ -170,6 +170,26 @@ class AWS(object):
 
         return response
 
+    def cfn_stack_resource_drifts(self, stack_id, next_token=None):
+        stack_drift_filters = [
+            'IN_SYNC',
+            'MODIFIED',
+            'DELETED',
+            'NOT_CHECKED'
+        ]
+        try:
+            response = self.client.describe_stack_resource_drifts(
+                StackDriftDetectionId=stack_drift_id,
+                StackResourceDriftStatusFilters=stack_drift_filters,
+                MaxResults=100,
+                NextToken=next_token
+            )
+        except (ClientError, NoCredentialsError):
+            logging.error(f'Service: {stack_id} does not seem to exist :: Skipping')
+            return None
+
+        return response
+
     def get_secret(self, secret=None):
         secret_data = {}
         secret_name = secret.lower()

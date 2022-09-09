@@ -1,13 +1,38 @@
 #!/usr/bin/env python3
-
+import json
 import os
 import stat
 import time
 from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler, cfn_resource_identifiers
+from cfn_flip import to_json
 from pprint import pprint
 
 __version__ = '0.1'
 
+def detect_drift(aws_client, stack_id):
+    stack_drift_id = aws_client.cfn_drift_detect_id(stack_id)
+    stack_drift_status = aws_client.cfn_drift_detect_status(stack_drift_id)
+    resource_drifts = []
+
+    while stack_drift_status['DetectionStatus'] == "DETECTION_IN_PROGRESS":
+        time.sleep(5)
+        stack_drift_status = aws_client.cfn_drift_detect_status(stack_drift_id)
+
+    if stack_drift_status['DetectionStatus'] != "DETECTION_COMPLETE" or stack_drift_status[
+        'StackDriftStatus'] != "DRIFTED":
+        if stack_drift_status['StackDriftStatus'] != "IN_SYNC":
+            logging.error("Could not determine drift results")
+            raise ValueError("Drift Results Undetermined")
+
+    resource_drifts_result = aws_client.cfn_stack_resource_drifts(stack_id)
+    resource_drifts.extend(resource_drifts_result['StackResourceDrifts'])
+
+    while 'NextToken' in resource_drifts_result:
+        token = resource_drifts_result['NextToken']
+        resource_drifts_result = aws_client.cfn_stack_resource_drifts(stack_id, next_token=token)
+        resource_drifts.extend(resource_drifts_result['StackResourceDrifts'])
+
+    return resource_drifts
 
 def main():
     eligible_import_resources = cfn_resource_identifiers.resources()
@@ -21,14 +46,12 @@ def main():
     aws_client.cfn_client()
     stack_desc = aws_client.cfn_describe_stack(stack_name=stack_name)
     new_stack_desc = aws_client.cfn_describe_stack(stack_name=new_stack_name)
-    stack_template = aws_client.cfn_get_template(stack_name=stack_name)
     stack_id = stack_desc['StackId']
+    current_stack_template = aws_client.cfn_get_template(stack_id=stack_id)
     stack_params = []
     if 'Parameters' in stack_desc:
         stack_params = stack_desc['Parameters']
     stack_resources = aws_client.cfn_get_resources(stack_id)
-    stack_drift_id = aws_client.cfn_drift_detect_id(stack_id)
-    stack_drift_status = aws_client.cfn_drift_detect_status(stack_drift_id)
 
     if not stack_desc:
         logging.error(f'stack: {stack_name} does not exist aborting')
@@ -38,18 +61,30 @@ def main():
         logging.error(f'stack: {new_stack_name} already exists aborting')
         raise ValueError(f'Error {new_stack_name} already exists')
 
-    while stack_drift_status['DetectionStatus'] == "DETECTION_IN_PROGRESS":
-        time.sleep(5)
-        stack_drift_status = aws_client.cfn_drift_detect_status(stack_drift_id)
+    detect_drift(aws_client, stack_id)
 
-    if stack_drift_status['DetectionStatus'] != "DETECTION_COMPLETE" or stack_drift_status[
-        'StackDriftStatus'] != "DRIFTED":
-        if stack_drift_status['StackDriftStatus'] != "IN_SYNC":
-            logging.error("Could not determine drift results")
-            raise ValueError("Drift Results Undetermined")
+    # Convert template from ordered dict to normal python dict
+    if not isinstance(current_stack_template, str):
+        current_stack_template = json.dumps(dict(current_stack_template))
+
+    stack_template = json.loads(to_json(current_stack_template))
 
     pprint(stack_desc)
     pprint(stack_template)
+
+    # all resources that cant be imported - we need to list them and say they will be deleted
+    # we wont bother importing / exporting them - simplest solution we feed back the original template to the new stack
+    # which will rebuild everything as we are already deleting the old stack anyway - anything that can be preserved
+    # will be, anything that cant is recreated in the new stack.
+
+    # we need to get the exports and we need to find all stacks importing those exports
+    # to force them to import the actual value, rather than the import name
+    # finally once everything is moved across we need to update the same stacks
+    # to use the new stack_name if the export includes the stack_name and update them to this setting - or should we ?
+    # cfn may not be able to recognise the change made here - actually it should do if we use the cloudformation stack
+    # change mechanism - the only thing to do then is to the list the changes to the user once done as they will need to
+    # update their templates in the associated repos manually afterwards with whatever the new import varibles are now.
+
 
 
 if __name__ == "__main__":
