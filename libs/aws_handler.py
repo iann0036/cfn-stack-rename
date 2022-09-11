@@ -15,6 +15,8 @@
 #  aws_handler - This handles various aws functions
 
 import base64
+import time
+
 import boto3
 import json
 import logging
@@ -206,21 +208,81 @@ class AWS(object):
         )
         return response
 
-    def cfn_waiter(self, type, stack_id, delay=None, attempts=None):
+    def cfn_create_changeset(self, stack_name, template, resources, params=None,
+                             changeset_name=None, changeset_type=None, capabilities=None):
+        if not isinstance(template, str):
+            template = json.dumps(template)
+        if not capabilities:
+            capabilities = [
+                'CAPABILITY_NAMED_IAM',
+                'CAPABILITY_AUTO_EXPAND'
+            ]
+        if not changeset_type:
+            changeset_type = 'IMPORT'
+        if not changeset_name:
+            changeset_name = 'Stack-Rename-' + str(int(time.time()))
+        response = self.client.create_change_set(
+            StackName=stack_name,
+            ChangeSetName=changeset_name,
+            TemplateBody=template,
+            ChangeSetType=changeset_type,
+            Capabilities=capabilities,
+            ResourcesToImport=resources,
+            Parameters=params
+        )
+        return response["StackId"], response
+
+    def cfn_exec_changeset(self, changeset_name, stack_id):
+        response = self.client.execute_change_set(
+            ChangeSetName=changeset_name,
+            StackName=stack_id
+        )
+        return response
+
+    def cfn_list_imports(self, export_name, next_token=None):
+        response = self.client.list_imports(
+            ExportName=export_name,
+            NextToken=next_token
+        )
+        #return response['Imports'], response['NextToken']
+        return response
+
+    def cfn_list_exports(self, next_token=None):
+        response = self.client.list_exports(
+            NextToken=next_token
+        )
+        return response
+
+    def cfn_delete_stack(self, stack_id):
+        response = self.client.delete_stack(
+            StackName=stack_id
+        )
+        return response
+
+    def cfn_waiter(self, stack_id, waiter_type, changeset_name=None, delay=None, attempts=None):
         if not attempts:
             attempts = 360
         if not delay:
             delay = 10
 
-        waiter = self.client.get_waiter(type)
+        waiter_config = {
+            'Delay': delay,
+            'MaxAttempts': attempts
+        }
 
-        waiter.wait(
-            StackName=stack_id,
-            WaiterConfig={
-                'Delay': delay,
-                'MaxAttempts': attempts
-            }
-        )
+        waiter = self.client.get_waiter(waiter_type)
+
+        if changeset_name:
+            waiter.wait(
+                StackName=stack_id,
+                ChangeSetName=changeset_name,
+                WaiterConfig=waiter_config
+            )
+        else:
+            waiter.wait(
+                StackName=stack_id,
+                WaiterConfig=waiter_config
+            )
 
     def get_secret(self, secret=None):
         secret_data = {}

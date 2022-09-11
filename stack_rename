@@ -37,7 +37,7 @@ def detect_drift(aws_client, stack_id):
 
 
 def sanitize_template(template, desc_stack_resources, resource_drifts):
-    support_import_list = list()
+    supported_import_list = list()
     non_importable_list = list()
     found = False
     resource_exists = False
@@ -54,7 +54,7 @@ def sanitize_template(template, desc_stack_resources, resource_drifts):
         for i in range(len(resource_drifts)):
             if resource_drifts[i]['LogicalResourceId'] == k:
                 found = True
-                support_import_list.append(k)
+                supported_import_list.append(k)
                 break
         if not found:
             logging.warning(f'Found resource: {k} type without drift info: {template["Resources"][k]["Type"]}: '
@@ -63,7 +63,40 @@ def sanitize_template(template, desc_stack_resources, resource_drifts):
         if template['Resources'][k]['Type'] not in resource_identifiers.keys():
             logging.warning(f'Found non-importable resource: {k} type: {template["Resources"][k]["Type"]}: '
                             f'This resource will need to be recreated')
-        return support_import_list, non_importable_list
+        return supported_import_list, non_importable_list
+
+
+def sanitize_resources(resource_drifts, template):
+    import_resources = []
+    resource_identifiers = config_data['cloudformation']['resource_identifiers']
+    for drifted_resource in resource_drifts:
+        resource_identifier = {}
+
+        import_properties = resource_identifiers[drifted_resource['ResourceType']]['importProperties'].copy()
+        if 'PhysicalResourceIdContext' in drifted_resource:
+            for prop in drifted_resource['PhysicalResourceIdContext']:
+                if prop['Key'] in import_properties:
+                    resource_identifier[prop['Key']] = prop['Value']
+                    import_properties.remove(prop['Key'])
+
+        if len(import_properties) > 1:
+            print("ERROR: Unexpected additional importable keys required, aborting...")
+            quit()
+        elif len(import_properties) == 1:
+            resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
+
+        template['Resources'][drifted_resource['LogicalResourceId']] = {
+            'DeletionPolicy': 'Retain',
+            'Type': drifted_resource['ResourceType'],
+            'Properties': json.loads(drifted_resource['ActualProperties'])
+        }
+
+        import_resources.append({
+            'ResourceType': drifted_resource['ResourceType'],
+            'LogicalResourceId': drifted_resource['LogicalResourceId'],
+            'ResourceIdentifier': resource_identifier
+        })
+    return template, import_resources
 
 
 def set_resource_retention(template, supported_resources):
@@ -71,10 +104,8 @@ def set_resource_retention(template, supported_resources):
         template['Resources'][resource]['DeletionPolicy'] = 'Retain'
         logging.info(f'Added Retain Deletion Policy to resource: {resource}')
 
-    logging.info(f'Added Retain Policy to all supported resources: Updating Stack Now')
+    logging.info(f'Added Retain Policy to all supported resources')
     return template
-
-
 
 
 def main():
@@ -108,6 +139,7 @@ def main():
 
     desc_stack_resources = aws_client.cfn_describe_resources(stack_id)
     resource_drifts = detect_drift(aws_client, stack_id)
+
     supported_resources, unsupported_resources = sanitize_template(stack_template,
                                                                    desc_stack_resources,
                                                                    resource_drifts)
@@ -115,8 +147,38 @@ def main():
     retain_template = set_resource_retention(template=stack_template,
                                              supported_resources=supported_resources)
 
+    sanitized_template, import_resources = sanitize_resources(resource_drifts, retain_template)
+
+    update_response = aws_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
+    aws_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
+
+    delete_response = aws_client.cfn_delete_stack(stack_id=stack_id)
+    aws_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
+
+    sanitized_template.pop('Outputs', None)
+    changeset_name = f'Stack-Rename-{str(int(time.time()))}'
+    new_stack_id, changeset_response = aws_client.cfn_create_changeset(stack_name=new_stack_name,
+                                                                       template=sanitized_template,
+                                                                       resources=import_resources,
+                                                                       params=stack_params,
+                                                                       changeset_name=changeset_name)
+    aws_client.cfn_waiter(stack_id=new_stack_id,
+                          waiter_type='change_set_create_complete',
+                          changeset_name=changeset_name)
+
+    aws_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
+    aws_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
+
+    logging.info("Cleaning up")
+
+    aws_client.cfn_update_stack(stack_id=new_stack_id, template=current_stack_template, params=stack_params)
+    aws_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_update_complete')
+
+    logging.info(f'Successfully renamed stack from: {stack_name} to {new_stack_name}')
+
+
     pprint(stack_desc)
-    pprint(stack_template)
+    pprint(retain_template)
 
     # all resources that cant be imported - we need to list them and say they will be deleted
     # we wont bother importing / exporting them - simplest solution we feed back the original template to the new stack
