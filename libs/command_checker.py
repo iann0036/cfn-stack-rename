@@ -32,9 +32,6 @@ class CommandCheck(object):
             self.data['git']['repos'][repo]['path'] = os.path.join(git_base_path, repo)
             self.data['git']['repos'][repo]['name'] = repo
 
-    def return_data(self):
-        return self.data
-
     def aws(self):
         if 'aws' not in self.data:
             self.data['aws'] = {}
@@ -65,3 +62,14 @@ class CommandCheck(object):
                 self.data['aws']['profile'] = self.options.profile
             if self.options.region:
                 self.data['aws']['region'] = self.options.region
+
+    def aws_data(self, io_handle):
+        if 'resource_identifier_file' not in self.data['configs']:
+            raise ValueError("Error no AWS Resource Identifiers File found in configuration")
+
+        resource_data_file = self.data['configs']['resource_identifier_file']
+        self.data['cloudformation'] = dict()
+        self.data['cloudformation'] = io_handle.read_file(config_file=resource_data_file, file_type='yaml')
+
+    def return_data(self):
+        return self.data

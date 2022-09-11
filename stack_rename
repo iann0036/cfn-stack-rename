@@ -3,11 +3,12 @@ import json
 import os
 import stat
 import time
-from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler, cfn_resource_identifiers
+from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler
 from cfn_flip import to_json
 from pprint import pprint
 
 __version__ = '0.1'
+
 
 def detect_drift(aws_client, stack_id):
     stack_drift_id = aws_client.cfn_drift_detect_id(stack_id)
@@ -34,13 +35,52 @@ def detect_drift(aws_client, stack_id):
 
     return resource_drifts
 
-def main():
-    eligible_import_resources = cfn_resource_identifiers.resources()
 
+def sanitize_template(template, desc_stack_resources, resource_drifts):
+    support_import_list = list()
+    non_importable_list = list()
+    found = False
+    resource_exists = False
+    resource_identifiers = config_data['cloudformation']['resource_identifiers']
+
+    for k, v in template['Resources'].items():
+        for deployed_resource in desc_stack_resources:
+            if k == deployed_resource['LogicalResourceId']:
+                resource_exists = True
+
+        if not resource_exists and 'Condition' in template['Resources'][k]:  # skip conditionals
+            continue
+
+        for i in range(len(resource_drifts)):
+            if resource_drifts[i]['LogicalResourceId'] == k:
+                found = True
+                support_import_list.append(k)
+                break
+        if not found:
+            logging.warning(f'Found resource: {k} type without drift info: {template["Resources"][k]["Type"]}: '
+                            f'This resource will need to be recreated')
+            non_importable_list.append(k)
+        if template['Resources'][k]['Type'] not in resource_identifiers.keys():
+            logging.warning(f'Found non-importable resource: {k} type: {template["Resources"][k]["Type"]}: '
+                            f'This resource will need to be recreated')
+        return support_import_list, non_importable_list
+
+
+def set_resource_retention(template, supported_resources):
+    for resource in supported_resources:
+        template['Resources'][resource]['DeletionPolicy'] = 'Retain'
+        logging.info(f'Added Retain Deletion Policy to resource: {resource}')
+
+    logging.info(f'Added Retain Policy to all supported resources: Updating Stack Now')
+    return template
+
+
+
+
+def main():
     aws_client = aws_handler.AWS(data=config_data)
     stack_name = options.stack_name
     new_stack_name = options.new_stack
-    eligible_import_resources = cfn_resource_identifiers.resources()
 
     aws_client.login()
     aws_client.cfn_client()
@@ -51,7 +91,6 @@ def main():
     stack_params = []
     if 'Parameters' in stack_desc:
         stack_params = stack_desc['Parameters']
-    stack_resources = aws_client.cfn_get_resources(stack_id)
 
     if not stack_desc:
         logging.error(f'stack: {stack_name} does not exist aborting')
@@ -61,13 +100,20 @@ def main():
         logging.error(f'stack: {new_stack_name} already exists aborting')
         raise ValueError(f'Error {new_stack_name} already exists')
 
-    detect_drift(aws_client, stack_id)
-
     # Convert template from ordered dict to normal python dict
     if not isinstance(current_stack_template, str):
         current_stack_template = json.dumps(dict(current_stack_template))
 
     stack_template = json.loads(to_json(current_stack_template))
+
+    desc_stack_resources = aws_client.cfn_describe_resources(stack_id)
+    resource_drifts = detect_drift(aws_client, stack_id)
+    supported_resources, unsupported_resources = sanitize_template(stack_template,
+                                                                   desc_stack_resources,
+                                                                   resource_drifts)
+
+    retain_template = set_resource_retention(template=stack_template,
+                                             supported_resources=supported_resources)
 
     pprint(stack_desc)
     pprint(stack_template)
@@ -84,7 +130,6 @@ def main():
     # cfn may not be able to recognise the change made here - actually it should do if we use the cloudformation stack
     # change mechanism - the only thing to do then is to the list the changes to the user once done as they will need to
     # update their templates in the associated repos manually afterwards with whatever the new import varibles are now.
-
 
 
 if __name__ == "__main__":

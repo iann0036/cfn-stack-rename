@@ -137,7 +137,7 @@ class AWS(object):
             return None
         return response['TemplateBody']
 
-    def cfn_get_resources(self, stack_id):
+    def cfn_describe_resources(self, stack_id):
         try:
             response = self.client.describe_stack_resources(
                 StackName=stack_id
@@ -170,7 +170,7 @@ class AWS(object):
 
         return response
 
-    def cfn_stack_resource_drifts(self, stack_id, next_token=None):
+    def cfn_stack_resource_drifts(self, stack_drift_id, next_token=None):
         stack_drift_filters = [
             'IN_SYNC',
             'MODIFIED',
@@ -185,10 +185,42 @@ class AWS(object):
                 NextToken=next_token
             )
         except (ClientError, NoCredentialsError):
-            logging.error(f'Service: {stack_id} does not seem to exist :: Skipping')
+            logging.error(f'Service: {stack_drift_id} does not seem to exist :: Skipping')
             return None
 
         return response
+
+    def cfn_update_stack(self, stack_id, template, capabilities=None, params=None):
+        if not isinstance(template, str):
+            template = json.dumps(template)
+        if not capabilities:
+            capabilities = [
+                'CAPABILITY_NAMED_IAM',
+                'CAPABILITY_AUTO_EXPAND'
+            ]
+        response = self.client.update_stack(
+            StackName=stack_id,
+            TemplateBody=template,
+            Capabilities=capabilities,
+            Parameters=params
+        )
+        return response
+
+    def cfn_waiter(self, type, stack_id, delay=None, attempts=None):
+        if not attempts:
+            attempts = 360
+        if not delay:
+            delay = 10
+
+        waiter = self.client.get_waiter(type)
+
+        waiter.wait(
+            StackName=stack_id,
+            WaiterConfig={
+                'Delay': delay,
+                'MaxAttempts': attempts
+            }
+        )
 
     def get_secret(self, secret=None):
         secret_data = {}

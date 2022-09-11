@@ -1,4 +1,7 @@
 ---
 
+configs:
+  resource_identifier_file: "configs/cloudformation.yaml"
+
 aws:
   region: 'eu-west-2'
