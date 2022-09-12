@@ -2,6 +2,7 @@ import logging
 import time
 from pprint import pprint
 import json
+from copy import deepcopy
 
 
 def detect_drift(aws_client, stack_id):
@@ -33,46 +34,55 @@ def detect_drift(aws_client, stack_id):
     return resource_drifts
 
 
-def sanitize_template(data, template, desc_stack_resources, resource_drifts):
+def sanitize_template(data, template, resources, drifts):
     supported_import_list = []
     non_importable_list = []
     resource_identifiers = data['cloudformation']['resource_identifiers']
+    # pprint(f'resource identifiers: {resource_identifiers.keys()}')
+    # logging.warning(f'Stack Template:')
+    # pprint(template)
+    sanitized_template = deepcopy(template)
 
     for k, v in template['Resources'].items():
         found = False
         resource_exists = False
-        for deployed_resource in desc_stack_resources:
+        # logging.info(f'Template resource scanning currently key:{k} ::  value:{v}')
+
+        for deployed_resource in resources:
             if k == deployed_resource['LogicalResourceId']:
-                supported_import_list.append(k)
                 resource_exists = True
 
         if not resource_exists and 'Condition' in template['Resources'][k]:  # skip conditionals
             continue
 
-        for i in range(len(resource_drifts)):
-            if resource_drifts[i]['LogicalResourceId'] == k:
+        for i in range(len(drifts)):
+            if drifts[i]['LogicalResourceId'] == k:
                 found = True
-                logging.info(f'Resource: {k} Can be imported')
-                supported_import_list.append(k)
                 break
         if not found:
-            logging.warning(f'Found resource: {k} type without drift info: {template["Resources"][k]["Type"]}: '
+            logging.warning(f'Found resource: {k} type without drift info: {template["Resources"][k]["Type"]} '
                             f'This resource will need to be recreated')
             non_importable_list.append(k)
-        if template['Resources'][k]['Type'] not in resource_identifiers.keys():
-            logging.warning(f'Found non-importable resource: {k} type: {template["Resources"][k]["Type"]}: '
+            del sanitized_template['Resources'][k]
+        elif template['Resources'][k]['Type'] not in resource_identifiers.keys():
+            logging.warning(f'Found non-importable resource: {k} type: {template["Resources"][k]["Type"]} '
                             f'This resource will need to be recreated')
             non_importable_list.append(k)
+            del sanitized_template['Resources'][k]
+        else:
+            logging.info(f'Resource: {k} Can be imported')
+            if k not in supported_import_list:
+                supported_import_list.append(k)
 
-        logging.info(f"Supported import list: {pprint(supported_import_list)}")
-        logging.info(f'Unsupported list: {pprint(non_importable_list)}')
-        return supported_import_list, non_importable_list
+    logging.info(f'Supported import list: {supported_import_list}')
+    logging.info(f'Unsupported list: {non_importable_list}')
+    return supported_import_list, non_importable_list, sanitized_template
 
 
-def sanitize_resources(data, resource_drifts, template):
+def sanitize_resources(data, drifts, template):
     import_resources = []
     resource_identifiers = data['cloudformation']['resource_identifiers']
-    for drifted_resource in resource_drifts:
+    for drifted_resource in drifts:
         resource_identifier = {}
 
         import_properties = resource_identifiers[drifted_resource['ResourceType']]['importProperties'].copy()
@@ -82,11 +92,11 @@ def sanitize_resources(data, resource_drifts, template):
                     resource_identifier[prop['Key']] = prop['Value']
                     import_properties.remove(prop['Key'])
 
-        if len(import_properties) > 0:
-            print("ERROR: Unexpected additional importable keys required, aborting...")
+        if len(import_properties) > 1:
+            logging.error("Unexpected additional importable keys required, aborting...")
             quit()
-        elif len(import_properties) == 0:
-            resource_identifier[import_properties[-1]] = drifted_resource['PhysicalResourceId']
+        elif len(import_properties) == 1:
+            resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
 
         template['Resources'][drifted_resource['LogicalResourceId']] = {
             'DeletionPolicy': 'Retain',

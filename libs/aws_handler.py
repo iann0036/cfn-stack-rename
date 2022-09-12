@@ -118,13 +118,12 @@ class AWS(object):
             service_name='cloudformation',
             region_name=aws_region
         )
-        print(f'Client currently: {self.client}')
 
     def cfn_describe_stack(self, stack_name):
         try:
             response = self.client.describe_stacks(StackName=stack_name)
         except (ClientError, NoCredentialsError):
-            logging.warning(f'Service: {stack_name} doesnt have cloud template profile :: Skipping')
+            logging.info(f'Service: {stack_name} doesnt have cloud template profile :: Skipping')
             return None
         return response['Stacks'][0]
 

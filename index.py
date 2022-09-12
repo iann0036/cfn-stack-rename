@@ -2,7 +2,7 @@ import boto3
 import sys
 import json
 import time
-import pprint
+from pprint import pprint
 from collections import OrderedDict
 from cfn_flip import flip, to_yaml, to_json
 from libs import cfn_resource_identifiers
@@ -133,10 +133,15 @@ while 'NextToken' in resource_drifts_result:
 
 template = json.loads(to_json(original_template))
 
+print("********* TEMPLATE :: ")
+pprint(template)
+
 # check all is in drift results
+#pprint(f'resource identifiers: {eligible_import_resources.keys()}')
 for k, v in template['Resources'].items():
     found = False
     resource_exists = False
+    print(f'Template resource scanning currently: {k}: {v}')
 
     for deployed_resource in original_resources:
         if k == deployed_resource['LogicalResourceId']:

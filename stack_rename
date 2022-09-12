@@ -32,31 +32,37 @@ def main():
 
     if 'Parameters' in stack_desc:
         stack_params = stack_desc['Parameters']
-    stack_id = stack_desc['StackId'] # original_stack_id
-    current_stack_template = aws_client.cfn_get_template(stack_id=stack_id) # original_template
+    stack_id = stack_desc['StackId']  # original_stack_id
+    current_stack_template = aws_client.cfn_get_template(stack_id=stack_id)  # original_template
+    # pprint(f'Stack Template from AWS: {current_stack_template}')
 
     # Convert template from ordered dict to normal python dict
     if not isinstance(current_stack_template, str):
         current_stack_template = json.dumps(dict(current_stack_template))
     stack_template = json.loads(to_json(current_stack_template))
+    # logging.warning(f'Stack Template:')
+    # pprint(stack_template)
 
-    desc_stack_resources = aws_client.cfn_describe_resources(stack_id)
+    stack_resources = aws_client.cfn_describe_resources(stack_id)  # original_resources
     resource_drifts = cfn.detect_drift(aws_client, stack_id)
 
-    supported_resources, unsupported_resources = cfn.sanitize_template(config_data,
-                                                                       stack_template,
-                                                                       desc_stack_resources,
-                                                                       resource_drifts)
-    logging.warning(f'The following resources will be recreated:')
-    for unsupported_resource in unsupported_resources:
-        logging.warning(f'\n\t* {unsupported_resource}')
+    logging.info(f'Resource Drifts info found, sanitizing templates')
+
+    supported_resources, unsupported_resources, sanitized_template = cfn.sanitize_template(config_data,
+                                                                                           stack_template,
+                                                                                           stack_resources,
+                                                                                           resource_drifts)
+    logging.info(f'Sanitized Template, working out what can be imported')
     if len(unsupported_resources) > 1:
+        logging.warning(f'Please Note: \nThe following resources will be deleted and then recreated:')
+        for unsupported_resource in unsupported_resources:
+            print(f'\t* {unsupported_resource}')
         continue_migration = str(input('Do you wish to continue? (YES/no): '))
         if continue_migration != 'YES':
             logging.warning(f'Aborting as requested')
             exit(0)
 
-    retain_template = cfn.set_resource_retention(template=stack_template,
+    retain_template = cfn.set_resource_retention(template=sanitized_template,
                                                  supported_resources=supported_resources)
 
     sanitized_template, import_resources = cfn.sanitize_resources(config_data,
