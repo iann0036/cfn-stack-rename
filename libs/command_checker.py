@@ -69,7 +69,7 @@ class CommandCheck(object):
 
         resource_data_file = self.data['configs']['resource_identifier_file']
         self.data['cloudformation'] = dict()
-        self.data['cloudformation'] = io_handle.read_file(config_file=resource_data_file, file_type='yaml')
+        self.data['cloudformation'] = io_handle.read_file(config_file=resource_data_file, file_type='json')
 
     def return_data(self):
         return self.data

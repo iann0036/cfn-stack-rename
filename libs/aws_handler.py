@@ -172,23 +172,26 @@ class AWS(object):
 
         return response
 
-    def cfn_stack_resource_drifts(self, stack_drift_id, next_token=None):
+    def cfn_stack_resource_drifts(self, stack_id, next_token=None):
         stack_drift_filters = [
             'IN_SYNC',
             'MODIFIED',
             'DELETED',
             'NOT_CHECKED'
         ]
-        try:
+        if not next_token:
             response = self.client.describe_stack_resource_drifts(
-                StackDriftDetectionId=stack_drift_id,
+                StackName=stack_id,
+                StackResourceDriftStatusFilters=stack_drift_filters,
+                MaxResults=100,
+            )
+        else:
+            response = self.client.describe_stack_resource_drifts(
+                StackName=stack_id,
                 StackResourceDriftStatusFilters=stack_drift_filters,
                 MaxResults=100,
                 NextToken=next_token
             )
-        except (ClientError, NoCredentialsError):
-            logging.error(f'Service: {stack_drift_id} does not seem to exist :: Skipping')
-            return None
 
         return response
 
@@ -240,17 +243,25 @@ class AWS(object):
         return response
 
     def cfn_list_imports(self, export_name, next_token=None):
-        response = self.client.list_imports(
-            ExportName=export_name,
-            NextToken=next_token
-        )
+        if not next_token:
+            response = self.client.list_imports(
+                ExportName=export_name,
+            )
+        else:
+            response = self.client.list_imports(
+                ExportName=export_name,
+                NextToken=next_token
+            )
         #return response['Imports'], response['NextToken']
         return response
 
     def cfn_list_exports(self, next_token=None):
-        response = self.client.list_exports(
-            NextToken=next_token
-        )
+        if not next_token:
+            response = self.client.list_exports()
+        else:
+            response = self.client.list_exports(
+                NextToken=next_token
+            )
         return response
 
     def cfn_delete_stack(self, stack_id):
