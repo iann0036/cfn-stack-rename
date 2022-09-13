@@ -73,18 +73,19 @@ def main():
 
     sanitized_resource_template, import_resources = cfn.sanitize_resources(config_data,
                                                                            resource_drifts,
-                                                                           sanitized_template)
+                                                                           sanitized_template,
+                                                                           supported_imports)
     verify_delete = cfn.verify_action('Delete', stack_id)
     if verify_delete:
         delete_response = aws_client.cfn_delete_stack(stack_id=stack_id)
         aws_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
 
-    sanitized_template.pop('Outputs', None)
+    sanitized_resource_template.pop('Outputs', None)
     changeset_name = f'Stack-Rename-{str(int(time.time()))}'
     verify_create_changeset = cfn.verify_action('Create ChangeSet', new_stack_name)
     if verify_create_changeset:
         new_stack_id, changeset_response = aws_client.cfn_create_changeset(stack_name=new_stack_name,
-                                                                           template=sanitized_template,
+                                                                           template=sanitized_resource_template,
                                                                            resources=import_resources,
                                                                            params=stack_params,
                                                                            changeset_name=changeset_name)

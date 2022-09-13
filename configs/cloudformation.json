@@ -95,7 +95,6 @@
     },
     "AWS::ApiGateway::Deployment": {
       "importProperties": [
-        "DeploymentId",
         "RestApiId"
       ]
     },
@@ -1822,7 +1821,6 @@
     },
     "AWS::Logs::SubscriptionFilter": {
       "importProperties": [
-        "LogGroupName",
         "FilterName"
       ]
     },

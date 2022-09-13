@@ -1119,7 +1119,7 @@ resource_identifiers:
       - PolicyName
   AWS::Logs::SubscriptionFilter:
     importProperties:
-      - LogGroupName
+      - FilterName
   AWS::LookoutEquipment::InferenceScheduler:
     importProperties:
       - InferenceSchedulerName
