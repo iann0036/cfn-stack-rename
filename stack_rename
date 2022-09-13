@@ -22,6 +22,7 @@ def main():
     stack_desc = aws_client.cfn_describe_stack(stack_name=stack_name)
     new_stack_desc = aws_client.cfn_describe_stack(stack_name=new_stack_name)
 
+
     if not stack_desc:
         logging.error(f'stack: {stack_name} does not exist aborting')
         raise ValueError(f'Error {stack_name} does not exist')
@@ -29,6 +30,17 @@ def main():
     if new_stack_desc:
         logging.error(f'stack: {new_stack_name} already exists aborting')
         raise ValueError(f'Error {new_stack_name} already exists')
+
+    stack_exports = cfn.stack_exports(stack_desc)
+
+    # for time being we will only inform the end user about the imported exports
+    # and get them to make the necessary changes manually - this can be automated but for now
+    # this is the safer bet and it is a valid sanity check.
+
+    # we have a nice map layout to get access to the stacks, the values and names for later down the line
+    # when we look at possibly automating this.
+    cfn.stacks_importing_exports(aws_client, stack_exports)
+
 
     if 'Parameters' in stack_desc:
         stack_params = stack_desc['Parameters']
@@ -48,22 +60,22 @@ def main():
 
     logging.info(f'Resource Drifts info found, sanitizing templates')
 
-    supported_resources, unsupported_resources, sanitized_template = cfn.sanitize_template(config_data,
-                                                                                           stack_template,
-                                                                                           stack_resources,
-                                                                                           resource_drifts)
+    supported_imports, unsupported_imports, undriftables, sanitized_template = cfn.sanitize_template(config_data,
+                                                                                                     stack_template,
+                                                                                                     stack_resources,
+                                                                                                     resource_drifts)
     logging.info(f'Sanitized Template, working out what can be imported')
-    if len(unsupported_resources) > 1:
+    if len(unsupported_imports) > 1:
         logging.warning(f'Please Note: \nThe following resources will be deleted and then recreated:')
-        for unsupported_resource in unsupported_resources:
-            print(f'\t* {unsupported_resource}')
+        for ui_resource, ui_type in unsupported_imports.items():
+            print(f'\t* {ui_resource}: {ui_type}')
         continue_migration = str(input('Do you wish to continue? (YES/no): '))
         if continue_migration != 'YES':
             logging.warning(f'Aborting as requested')
             exit(0)
 
     retain_template = cfn.set_resource_retention(template=sanitized_template,
-                                                 supported_resources=supported_resources)
+                                                 supported_resources=supported_imports)
 
     sanitized_template, import_resources = cfn.sanitize_resources(config_data,
                                                                   resource_drifts,

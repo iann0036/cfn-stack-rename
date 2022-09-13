@@ -1,5 +1,4 @@
 ---
-
 # from Former2 - https://github.com/iann0036/former2/blob/master/util/importable.txt
 # added to libs/cfn_resource_identifiers.py and converted to yaml using config_convertor.py
 
@@ -779,15 +778,40 @@ resource_identifiers:
   AWS::HealthLake::FHIRDatastore:
     importProperties:
       - DatastoreId
+  AWS::IAM::Group:
+    capabilities:
+      - CAPABILITY_NAMED_IAM
+    importProperties:
+      - GroupName
+  AWS::IAM::InstanceProfile:
+    capabilities:
+      - CAPABILITY_NAMED_IAM
+    importProperties:
+      - InstanceProfileName
+  AWS::IAM::ManagedPolicy:
+    capabilities:
+      - CAPABILITY_NAMED_IAM
+    importProperties:
+      - PolicyArn
   AWS::IAM::OIDCProvider:
     importProperties:
       - Arn
+  AWS::IAM::Role:
+    capabilities:
+      - CAPABILITY_NAMED_IAM
+    importProperties:
+      - RoleName
   AWS::IAM::SAMLProvider:
     importProperties:
       - Arn
   AWS::IAM::ServerCertificate:
     importProperties:
       - ServerCertificateName
+  AWS::IAM::User:
+    capabilities:
+      - CAPABILITY_NAMED_IAM
+    importProperties:
+      - UserName
   AWS::IAM::VirtualMFADevice:
     importProperties:
       - SerialNumber

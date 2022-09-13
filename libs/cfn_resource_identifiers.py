@@ -1260,6 +1260,46 @@ def resources():
                 "DatastoreId"
             ]
         },
+        "AWS::IAM::Group": {
+            "importProperties": [
+                "GroupName"
+            ],
+            "capabilities": [
+                "CAPABILITY_NAMED_IAM"
+            ]
+        },
+        "AWS::IAM::InstanceProfile": {
+            "importProperties": [
+                "InstanceProfileName"
+            ],
+            "capabilities": [
+                "CAPABILITY_NAMED_IAM"
+            ]
+        },
+        "AWS::IAM::Role": {
+            "importProperties": [
+                "RoleName"
+            ],
+            "capabilities": [
+                "CAPABILITY_NAMED_IAM"
+            ]
+        },
+        "AWS::IAM::User": {
+            "importProperties": [
+                "UserName"
+            ],
+            "capabilities": [
+                "CAPABILITY_NAMED_IAM"
+            ]
+        },
+        "AWS::IAM::ManagedPolicy": {
+            "importProperties": [
+                "PolicyArn"
+            ],
+            "capabilities": [
+                "CAPABILITY_NAMED_IAM"
+            ]
+        },
         "AWS::IAM::OIDCProvider": {
             "importProperties": [
                 "Arn"

@@ -2,7 +2,74 @@ import logging
 import time
 from pprint import pprint
 import json
+from cfn_flip import to_json
 from copy import deepcopy
+
+
+def stack_exports(stack_desc):
+    exports = dict()
+    for outputs in stack_desc['Outputs']:
+        if 'ExportName' in outputs:
+            exports[outputs['ExportName']] = outputs['OutputValue']
+    logging.info(f"Stack Exports currently: {exports}")
+    return exports
+
+
+def stacks_importing_exports(aws_client, exports):
+    stacks_importing = dict()
+    for export_name, export_value in exports.items():
+        response = aws_client.cfn_list_imports(export_name)
+        for stack in response['Imports']:
+            if stack not in stacks_importing:
+                stacks_importing[stack] = list()
+            stacks_importing[stack].append(export_name)
+
+        while 'NextToken' in response:
+            token = response['NextToken']
+            response = aws_client.cfn_list_imports(export_name, next_token=token)
+            for stack in response['Imports']:
+                if stack not in stacks_importing:
+                    stacks_importing[stack] = list()
+                stacks_importing[stack].append(export_name)
+
+    if len(stacks_importing) > 1:
+        logging.error(f'The Following stacks are importing resources from this stack:')
+        for stack_name, stack_imports in stacks_importing.items():
+            for import_name in stack_imports:
+                logging.error(f'  * Stack Name: {stack_name}: :: Import: {import_name} '
+                              f':: Actual Value: {exports[import_name]}')
+        logging.error(f'Please update the stacks listed with the actual value provided above '
+                      f'instead of the import name before continuing')
+        logging.error(f'This will ensure the stack can be renamed without issue')
+        continue_regardless = str(input(f'Do you wish to continue - '
+                                        f'even though this is guaranteed to fail? (Yes/no): '))
+        if continue_regardless != 'YES':
+            logging.info('Wise Choice, exiting now')
+            exit(0)
+
+    return stacks_importing
+
+
+def remove_imports_from_stack_templates(aws_client, stacks_importing, exports):
+    stack_params = []
+    for stack_name, stack_imports in stacks_importing.items():
+        for import_name in stack_imports:
+            stack_desc = aws_client.cfn_describe_stack(stack_name=stack_name)
+            stack_id = stack_desc['StackId']  # original_stack_id
+            if 'Parameters' in stack_desc:
+                stack_params = stack_desc['Parameters']
+            stack_template =  aws_client.cfn_get_template(stack_id=stack_id)
+            if not isinstance(stack_template, str):
+                stack_template = json.dumps(dict(stack_template))
+            template = json.loads(to_json(stack_template))
+            # this is the point you realise that cloudformation absolutely sucks.
+            # hey if the amount of code required to just rename a stack wasn't already
+            # an indication...
+            # we can do a recursive / tree lookup through the template but
+            # if the imported value is using sub then matching against it
+            # is difficult - everyone uses different patterns so cant do a generic thing
+            # basically you can never fully trust it - its just not worth the effort.
+            pprint(template)
 
 
 def detect_drift(aws_client, stack_id):
@@ -35,8 +102,9 @@ def detect_drift(aws_client, stack_id):
 
 
 def sanitize_template(data, template, resources, drifts):
-    supported_import_list = []
-    non_importable_list = []
+    supported_imports = dict()
+    non_importables = dict()
+    non_driftables = dict()
     resource_identifiers = data['cloudformation']['resource_identifiers']
     # pprint(f'resource identifiers: {resource_identifiers.keys()}')
     # logging.warning(f'Stack Template:')
@@ -60,23 +128,23 @@ def sanitize_template(data, template, resources, drifts):
                 found = True
                 break
         if not found:
-            logging.warning(f'Found resource: {k} type without drift info: {template["Resources"][k]["Type"]} '
-                            f'This resource will need to be recreated')
-            non_importable_list.append(k)
-            del sanitized_template['Resources'][k]
-        elif template['Resources'][k]['Type'] not in resource_identifiers.keys():
+            logging.warning(f'Found resource: {k} type without drift info: {template["Resources"][k]["Type"]}')
+            non_driftables[k] = template["Resources"][k]["Type"]
+            #del sanitized_template['Resources'][k]
+        if template['Resources'][k]['Type'] not in resource_identifiers.keys():
             logging.warning(f'Found non-importable resource: {k} type: {template["Resources"][k]["Type"]} '
                             f'This resource will need to be recreated')
-            non_importable_list.append(k)
+            non_importables[k] = template["Resources"][k]["Type"]
             del sanitized_template['Resources'][k]
-        else:
+        if template['Resources'][k]['Type'] in resource_identifiers.keys():
             logging.info(f'Resource: {k} Can be imported')
-            if k not in supported_import_list:
-                supported_import_list.append(k)
+            if k not in supported_imports.keys():
+                supported_imports[k] = template['Resources'][k]['Type']
 
-    logging.info(f'Supported import list: {supported_import_list}')
-    logging.info(f'Unsupported list: {non_importable_list}')
-    return supported_import_list, non_importable_list, sanitized_template
+    logging.info(f'Supported imports: {supported_imports}')
+    logging.info(f'Unsupported imports: {non_importables}')
+    logging.info(f'Unsupported drifts: {non_driftables}')
+    return supported_imports, non_importables, non_driftables, sanitized_template
 
 
 def sanitize_resources(data, drifts, template):
@@ -93,7 +161,8 @@ def sanitize_resources(data, drifts, template):
                     import_properties.remove(prop['Key'])
 
         if len(import_properties) > 1:
-            logging.error("Unexpected additional importable keys required, aborting...")
+            logging.error(f'{drifted_resource}: Unexpected additional '
+                          f'importable keys required {import_properties}, aborting...')
             quit()
         elif len(import_properties) == 1:
             resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
