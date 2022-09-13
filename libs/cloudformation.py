@@ -6,6 +6,15 @@ from cfn_flip import to_json
 from copy import deepcopy
 
 
+def verify_action(action, stack_name):
+    logging.warning(f'You are about to perform: {action} on stack: {stack_name}')
+    read_input = str(input('Are you sure you want to continue? (YES to do so): '))
+    if read_input != 'YES':
+        logging.warning('Skipping step as requested')
+        return False
+    return True
+
+
 def stack_exports(stack_desc):
     exports = dict()
     for outputs in stack_desc['Outputs']:
@@ -69,6 +78,9 @@ def remove_imports_from_stack_templates(aws_client, stacks_importing, exports):
             # if the imported value is using sub then matching against it
             # is difficult - everyone uses different patterns so cant do a generic thing
             # basically you can never fully trust it - its just not worth the effort.
+            # could add possibly a config parameter for user to define the pattern
+            # if they use sub for their imports etc - probably cleanest way of doing it
+            # too much effort for now.
             pprint(template)
 
 
@@ -106,9 +118,6 @@ def sanitize_template(data, template, resources, drifts):
     non_importables = dict()
     non_driftables = dict()
     resource_identifiers = data['cloudformation']['resource_identifiers']
-    # pprint(f'resource identifiers: {resource_identifiers.keys()}')
-    # logging.warning(f'Stack Template:')
-    # pprint(template)
     sanitized_template = deepcopy(template)
 
     for k, v in template['Resources'].items():
@@ -130,7 +139,6 @@ def sanitize_template(data, template, resources, drifts):
         if not found:
             logging.warning(f'Found resource: {k} type without drift info: {template["Resources"][k]["Type"]}')
             non_driftables[k] = template["Resources"][k]["Type"]
-            #del sanitized_template['Resources'][k]
         if template['Resources'][k]['Type'] not in resource_identifiers.keys():
             logging.warning(f'Found non-importable resource: {k} type: {template["Resources"][k]["Type"]} '
                             f'This resource will need to be recreated')
@@ -150,6 +158,7 @@ def sanitize_template(data, template, resources, drifts):
 def sanitize_resources(data, drifts, template):
     import_resources = []
     resource_identifiers = data['cloudformation']['resource_identifiers']
+    sanitized_template = deepcopy(template)
     for drifted_resource in drifts:
         resource_identifier = {}
 
@@ -167,7 +176,7 @@ def sanitize_resources(data, drifts, template):
         elif len(import_properties) == 1:
             resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
 
-        template['Resources'][drifted_resource['LogicalResourceId']] = {
+        sanitized_template['Resources'][drifted_resource['LogicalResourceId']] = {
             'DeletionPolicy': 'Retain',
             'Type': drifted_resource['ResourceType'],
             'Properties': json.loads(drifted_resource['ActualProperties'])
@@ -178,13 +187,15 @@ def sanitize_resources(data, drifts, template):
             'LogicalResourceId': drifted_resource['LogicalResourceId'],
             'ResourceIdentifier': resource_identifier
         })
-    return template, import_resources
+    return sanitized_template, import_resources
 
 
 def set_resource_retention(template, supported_resources):
+    retain_template = deepcopy(template)
+    pprint(supported_resources)
     for resource in supported_resources:
-        template['Resources'][resource]['DeletionPolicy'] = 'Retain'
+        retain_template['Resources'][resource]['DeletionPolicy'] = 'Retain'
         logging.info(f'Added Retain Deletion Policy to resource: {resource}')
 
     logging.info(f'Added Retain Policy to all supported resources')
-    return template
+    return retain_template

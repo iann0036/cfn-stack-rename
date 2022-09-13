@@ -64,7 +64,6 @@ resource_identifiers:
       - ClientCertificateId
   AWS::ApiGateway::Deployment:
     importProperties:
-      - DeploymentId
       - RestApiId
   AWS::ApiGateway::DocumentationVersion:
     importProperties:
@@ -1121,7 +1120,6 @@ resource_identifiers:
   AWS::Logs::SubscriptionFilter:
     importProperties:
       - LogGroupName
-      - FilterName
   AWS::LookoutEquipment::InferenceScheduler:
     importProperties:
       - InferenceSchedulerName
