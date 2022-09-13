@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
 import json
-import os
-import stat
 import time
 from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler
 from libs import cloudformation as cfn
 from cfn_flip import to_json
-from pprint import pprint
 
 __version__ = '0.1'
 
@@ -61,7 +58,7 @@ def main():
         logging.warning(f'Please Note: \nThe following resources will be deleted and then recreated:')
         for ui_resource, ui_type in unsupported_imports.items():
             print(f'\t* {ui_resource}: {ui_type}')
-        continue_migration = str(input('Do you wish to continue? (YES/no): '))
+        continue_migration = str(input('Do you wish to continue? (YES to do so): '))
         if continue_migration != 'YES':
             logging.warning(f'Aborting as requested')
             exit(0)
@@ -102,10 +99,17 @@ def main():
 
     logging.info("Cleaning up")
 
-    verify_update_new_stack = cfn.verify_action('Update New Stack', new_stack_id)
+    verify_update_new_stack = cfn.verify_action('Update', new_stack_id)
     if verify_update_new_stack:
         aws_client.cfn_update_stack(stack_id=new_stack_id, template=current_stack_template, params=stack_params)
         aws_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_update_complete')
+
+    logging.warning(f'All complete \nIf you removed imports that this stack exported in any other stack '
+                    f'please update those stacks and add in the imports.\n'
+                    f'If the import name includes the stack name please make sure to update to include the new '
+                    f'stack name {new_stack_name}\n'
+                    f'If you deploy using a pipeline please make sure the pipeline is aware of the new '
+                    f'stack name {new_stack_name} for deployment')
 
     logging.info(f'Successfully renamed stack from: {stack_name} to {new_stack_name}')
 
