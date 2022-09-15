@@ -56,30 +56,38 @@ def main():
         current_stack_template = json.dumps(dict(current_stack_template))
     stack_template = json.loads(to_json(current_stack_template))
 
-    stack_resources = cfn_client.cfn_describe_resources(stack_id)  # original_resources
+    stack_desc_resources = cfn_client.cfn_describe_resources(stack_id)  # original_resources
     resource_drifts = cfn.detect_drift(cfn_client, stack_id)
 
-    stack_resources_fmt = json.loads(json.dumps(stack_resources, default=str))
+    stack_desc_resources_fmt = json.loads(json.dumps(stack_desc_resources, default=str))
     resource_drifts_fmt = json.loads(json.dumps(resource_drifts, default=str))
 
-    io_handle.write_json(output_file="stack_resources.json", data=stack_resources_fmt)
+    io_handle.write_json(output_file="stack_resources.json", data=stack_desc_resources_fmt)
     io_handle.write_json(output_file="resource_drifts.json", data=resource_drifts_fmt)
+    io_handle.write_json(output_file="stack_parameters.json", data=stack_params)
 
     logging.info(f'Resource Drifts info found, sanitizing templates')
 
     supported_imports, unsupported_imports, undriftables, sanitized_template = cfn.sanitize_template(config_data,
                                                                                                      stack_template,
-                                                                                                     stack_resources,
+                                                                                                     stack_desc_resources,
                                                                                                      resource_drifts)
-    logging.info(f'Sanitized Template, working out what can be imported')
+
+    logging.info('The following resources do not have drift detection')
+    for ud_resource, ud_type in undriftables.items():
+        logging.info(f'  * Resource: {ud_resource}, Type: {ud_type}')
+    logging.info('These will still be imported, but they do not support drift detection\n')
+
     if len(unsupported_imports) > 1:
-        logging.warning(f'Please Note: \nThe following resources will be deleted and then recreated:')
+        logging.warning(f'Please Note: The following resources will be deleted and then recreated:')
         for ui_resource, ui_type in unsupported_imports.items():
-            print(f'\t* {ui_resource}: {ui_type}')
-        continue_migration = str(input('Do you wish to continue? (YES to do so): '))
+            logging.warning(f'  * Resource {ui_resource}, Type: {ui_type}')
+        continue_migration = str(input('\nDo you wish to continue? (YES to do so): '))
         if continue_migration != 'YES':
             logging.warning(f'Aborting as requested')
             exit(0)
+
+    logging.info('Sanitized Template, working out the change set information')
 
     retain_template = cfn.set_resource_retention(template=stack_template,
                                                  supported_imports=supported_imports)
@@ -87,7 +95,9 @@ def main():
     sanitized_resource_template, import_resources = cfn.sanitize_resources(config_data,
                                                                            resource_drifts,
                                                                            sanitized_template,
-                                                                           supported_imports)
+                                                                           supported_imports,
+                                                                           undriftables,
+                                                                           stack_desc_resources)
     logging.info('Sanitized Resources and worked out change_set resources_to_import parameters')
 
     # remove outputs - not needed for creating change sets.
@@ -111,7 +121,6 @@ def main():
         changeset_upload_success = s3_client.upload_s3(changeset_file)
         update_upload_success = s3_client.upload_s3(update_file)
 
-
         if not retain_upload_success:
             raise ValueError(f'Failed to upload template {retain_file} to : {retain_url}')
         if not changeset_upload_success:
@@ -131,10 +140,8 @@ def main():
             update_response = cfn_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
         cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
 
-    verify_delete = cfn.verify_action('Delete', stack_id)
-    if verify_delete:
-        delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
-        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
+        if update_response == "error":
+            cfn.verify_error()
 
     verify_create_changeset = cfn.verify_action('Create ChangeSet', new_stack_name)
     if verify_create_changeset:
@@ -154,12 +161,20 @@ def main():
                               waiter_type='change_set_create_complete',
                               changeset_name=changeset_name)
 
+    # frankly this is very bad - we should be deleting the resources from the stack which we are importing
+    # then on final clean-up when everything has worked we delete the stack ie this should be another update
+    # using the retain sanitized_resource_template but applied to the original stack which should automatically delete
+    # all resources now removed from the template. - it is still probably not going to work right because cloudformation is
+    # awful. 
+    verify_delete = cfn.verify_action('Delete', stack_id)
+    if verify_delete:
+        delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
+        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
+
     verify_exec_changeset = cfn.verify_action('Execute ChangeSet', new_stack_id)
     if verify_exec_changeset:
         cfn_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
         cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
-
-    logging.info("Cleaning up")
 
     verify_update_new_stack = cfn.verify_action('Update', new_stack_id)
     if verify_update_new_stack:

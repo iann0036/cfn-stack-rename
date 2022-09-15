@@ -63,15 +63,16 @@ deactivate # This exists the python virtual env
 
 ### Supported Resources
 
-The following resources are supported for stack rename (if other resources are within the stack, the script will refuse to continue):
-
-The following resources are supported for stack rename, in line with what is listed here: [Former 2 - importable.txt](https://github.com/iann0036/former2/blob/master/util/importable.txt)
+The following resources are supported for stack rename (if other resources are within the stack, the script will attempt to recreate them in the new stack):
 
 They are not listed here but can be viewed here: [cloudformation importable config](configs/cloudformation.yaml)
+
+This is in line with what is listed here: [Former 2 - importable.txt](https://github.com/iann0036/former2/blob/master/util/importable.txt)
 
 Please note if they are not listed above they will be recreated - The tool does warn about this and provides the option to exit.
 
 ### Known Issues
 
-* Stacks that have an `Fn::ImportValue` reference against it will cause the stack to be unable to be deleted
-* Some transforms may affect the RetainPolicy - check if this affects you before executing
+* Stacks that have an `Fn::ImportValue` reference against it - will warn about which other stacks are importing them and ask you to manually decouple
+* Some transforms may affect the RetainPolicy - check if this affects you before executing.
+* If using SAM or Lambdas this will most likely not work with errors like the following: `Validation failed for resource xxx with message #: required key [Code] not found` when trying to execute the changeset - be warned.

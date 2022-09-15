@@ -239,12 +239,16 @@ class AWS(object):
                 'CAPABILITY_NAMED_IAM',
                 'CAPABILITY_AUTO_EXPAND'
             ]
-        response = self.client.update_stack(
-            StackName=stack_id,
-            TemplateBody=template,
-            Capabilities=capabilities,
-            Parameters=params
-        )
+        try:
+            response = self.client.update_stack(
+                StackName=stack_id,
+                TemplateBody=template,
+                Capabilities=capabilities,
+                Parameters=params
+            )
+        except ClientError as err:
+            logging.error(f'The following error occurred: {err}')
+            return "error"
         return response
 
     def cfn_s3_update_stack(self, stack_id, s3_url, capabilities=None, params=None):
@@ -253,12 +257,16 @@ class AWS(object):
                 'CAPABILITY_NAMED_IAM',
                 'CAPABILITY_AUTO_EXPAND'
             ]
-        response = self.client.update_stack(
-            StackName=stack_id,
-            TemplateURL=s3_url,
-            Capabilities=capabilities,
-            Parameters=params
-        )
+        try:
+            response = self.client.update_stack(
+                StackName=stack_id,
+                TemplateURL=s3_url,
+                Capabilities=capabilities,
+                Parameters=params
+            )
+        except ClientError as err:
+            logging.error(f'The following error occurred: {err}')
+            return "error"
         return response
 
     def cfn_create_changeset(self, stack_name, template, resources, params=None,

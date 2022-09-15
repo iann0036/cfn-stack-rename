@@ -13,6 +13,15 @@ def verify_action(action, stack_name):
         return False
     return True
 
+def verify_error():
+    logging.warning(f'An error occurred displayed above - this may just mean the operation has already been done')
+    read_input = str(input('Do you wish to continue? (YES to do so): '))
+    if read_input != 'YES':
+        logging.info('Exiting as requested')
+        exit(1)
+    return True
+
+
 
 def stack_exports(stack_desc):
     exports = dict()
@@ -145,23 +154,48 @@ def sanitize_template(data, template, resources, drifts):
             if k not in supported_imports.keys():
                 supported_imports[k] = template['Resources'][k]['Type']
 
+    # removing all entries from non_driftables that also do not support importing:
+    for resource in non_importables.keys():
+        if resource in non_driftables.keys():
+            logging.info(f"Removing {resource} from non_driftables this cannot be imported")
+            del non_driftables[resource]
     logging.debug(f'Supported imports: {supported_imports}')
     logging.debug(f'Unsupported imports: {non_importables}')
     logging.debug(f'Unsupported drifts: {non_driftables}')
     return supported_imports, non_importables, non_driftables, sanitized_template
 
 
-def sanitize_resources(data, drifts, template, supported_imports):
+def sanitize_resources(data, drifts, template, supported_imports, undriftables, stack_desc_resources):
     import_resources = []
     import_resource_counter = 0
     resource_identifiers = data['cloudformation']['resource_identifiers']
     sanitized_template = deepcopy(template)
     logging.info(f'Sanitizing resources for creating change set...')
 
-    for resource in supported_imports.keys():
-        #import_properties = resource_identifiers[drifted_resource['ResourceType']]['importProperties'].copy()
-        sanitized_template['Resources'][resource]['DeletionPolicy'] = 'Retain'
-        logging.debug(f'Added Retain Deletion Policy to resource: {resource}')
+    for importable_resource in supported_imports.keys():
+        sanitized_template['Resources'][importable_resource]['DeletionPolicy'] = 'Retain'
+        logging.debug(f'Added Retain Deletion Policy to resource: {importable_resource}')
+
+    # we cannot have a non-drifted resource with more than 1 import properties - no way of finding out
+    # the other as stack_description_resources does not contain property values. 
+    for stack_desc_resource in stack_desc_resources:
+        if stack_desc_resource['LogicalResourceId'] in undriftables.keys():
+            import_props = resource_identifiers[stack_desc_resource['ResourceType']]['importProperties'].copy()
+            resource_id = dict()
+            if len(import_props) > 1:
+                logging.error(f'{stack_desc_resource}: Unexpected additional '
+                              f'importable keys required {import_props}, aborting...')
+                raise ValueError(f'Too many import properties: {import_props}, should only have 1')
+            elif len(import_props) == 1:
+                resource_id[import_props[0]] = stack_desc_resource['PhysicalResourceId']
+            import_resources.append({
+                'ResourceType': stack_desc_resource['ResourceType'],
+                'LogicalResourceId': stack_desc_resource['LogicalResourceId'],
+                'ResourceIdentifier': resource_id
+            })
+            logging.info(f'Added the following to import resources: '
+                         f'{import_resources[import_resource_counter]}')
+            import_resource_counter += 1
 
     for drifted_resource in drifts:
         resource_identifier = {}
@@ -173,10 +207,16 @@ def sanitize_resources(data, drifts, template, supported_imports):
                     resource_identifier[prop['Key']] = prop['Value']
                     import_properties.remove(prop['Key'])
 
-        if len(import_properties) > 1:
+        # This is wrong if there are 2 import_properties one of the import properties will be found as an id
+        # within the drifted resource 'ExpectedProperties'. So need to check the import_properties match the key against
+        # the key against the 'ExpectedProperties' assign the value from there and the 2nd key will by the PhysicalResourceId.
+        if len(import_properties) > 2:
             logging.error(f'{drifted_resource}: Unexpected additional '
                           f'importable keys required {import_properties}, aborting...')
             raise ValueError(f'Too many import properties: {import_properties}, should only have 1')
+        elif len(import_properties) == 2:
+            resource_identifier[import_properties[0]] = drifted_resource['LogicalResourceId']
+            resource_identifier[import_properties[1]] = drifted_resource['PhysicalResourceId']
         elif len(import_properties) == 1:
             resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
 
