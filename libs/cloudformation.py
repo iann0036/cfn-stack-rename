@@ -28,7 +28,7 @@ def stacks_importing_exports(aws_client, exports):
     for export_name, export_value in exports.items():
         response = aws_client.cfn_list_imports(export_name)
         if not response:
-            logging.info("Good News: This Stack does not have any of exports imported by other stacks")
+            logging.info("Good News: This Stack does not have any exports imported by other stacks")
             continue
         for stack in response['Imports']:
             if stack not in stacks_importing:

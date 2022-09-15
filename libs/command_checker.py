@@ -32,7 +32,7 @@ class CommandCheck(object):
             self.data['git']['repos'][repo]['path'] = os.path.join(git_base_path, repo)
             self.data['git']['repos'][repo]['name'] = repo
 
-    def aws(self):
+    def aws_auth(self):
         if 'aws' not in self.data:
             self.data['aws'] = {}
         if 'authenticate' not in self.data['aws']:
@@ -69,7 +69,26 @@ class CommandCheck(object):
 
         resource_data_file = self.data['configs']['resource_identifier_file']
         self.data['cloudformation'] = dict()
-        self.data['cloudformation'] = io_handle.read_file(config_file=resource_data_file, file_type='yaml')
+        self.data['cloudformation'] = io_handle.read_file(config_file=resource_data_file)
+
+    def aws_s3(self):
+        if 's3' not in self.data:
+            self.data['s3'] = dict()
+        if 'enable' not in self.data['s3']:
+            self.data['s3']['enable'] = False
+        if 'bucket' not in self.data['s3']:
+            self.data['s3']['bucket'] = None
+
+        if self.options.enable_s3:
+            if not self.options.s3_bucket:
+                self.parser.print_help()
+                self.parser.error('An S3 Bucket name must be provided, to store artifacts into')
+            self.data['s3']['enable'] = True
+            self.data['s3']['bucket'] = self.options.s3_bucket
+            old_path = self.data['s3']['old_path'] = f'cfn_stack_rename/{self.options.stack_name}'
+            new_path = self.data['s3']['new_path'] = f'cfn_stack_rename/{self.options.new_stack}'
+            self.data['s3']['old_uri'] = f's3://{self.options.s3_bucket}/{old_path}'
+            self.data['s3']['new_uri'] = f's3://{self.options.s3_bucket}/{new_path}'
 
     def return_data(self):
         return self.data

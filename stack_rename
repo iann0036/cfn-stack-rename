@@ -125,6 +125,7 @@ if __name__ == "__main__":
     cmd_opts.add_aws_auth()
     cmd_opts.add_aws_config()
     cmd_opts.add_cloudformation()
+    cmd_opts.add_aws_s3()
     options, arg_parser = cmd_opts.set_options()
     # set up the logging
     logging = custom_logger.colourLog(name=name, config_file=options.config)
@@ -135,6 +136,7 @@ if __name__ == "__main__":
     # parse through the provided options make sure everything is set as required
     # also do init sanity checks and config fixes/population
     cmd_check = command_checker.CommandCheck(options=options, parser=arg_parser, config_data=config_data)
-    cmd_check.aws()
+    cmd_check.aws_auth()
     cmd_check.aws_data(io_handle=io_handle)
+    cmd_check.aws_s3()
     main()
