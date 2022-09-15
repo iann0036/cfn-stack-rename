@@ -119,6 +119,30 @@ class AWS(object):
             region_name=aws_region
         )
 
+    def s3_client(self):
+        aws_region = self.data['aws']['region']
+        self.client = self.session.client(
+            service_name='s3',
+            region_name=aws_region
+        )
+
+    def upload_s3(self, file_name, bucket, object_name=None):
+        if not bucket:
+            bucket = self.data['aws']['s3']['bucket']
+
+        if object_name is None:
+            object_name = os.path.basename(file_name)
+
+        object_name = f'stack_rename/{object_name}'
+
+        try:
+            response = self.client.upload_file(file_name, bucket, object_name)
+        except ClientError as err:
+            logging.error(f'Cannot upload to s3: {err}'
+            return False
+        return True
+
+
     def cfn_describe_stack(self, stack_name):
         try:
             response = self.client.describe_stacks(StackName=stack_name)
@@ -242,15 +266,20 @@ class AWS(object):
         return response
 
     def cfn_list_imports(self, export_name, next_token=None):
-        if not next_token:
-            response = self.client.list_imports(
-                ExportName=export_name,
-            )
-        else:
-            response = self.client.list_imports(
-                ExportName=export_name,
-                NextToken=next_token
-            )
+        try:
+            if not next_token:
+                response = self.client.list_imports(
+                    ExportName=export_name,
+                )
+            else:
+                response = self.client.list_imports(
+                    ExportName=export_name,
+                    NextToken=next_token
+                )
+        except ClientError as err:
+            logging.info(f'No exports found: {err}')
+            return None
+
         #return response['Imports'], response['NextToken']
         return response
 

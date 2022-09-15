@@ -27,6 +27,9 @@ def stacks_importing_exports(aws_client, exports):
     stacks_importing = dict()
     for export_name, export_value in exports.items():
         response = aws_client.cfn_list_imports(export_name)
+        if not response:
+            logging.info("Good News: This Stack does not have any of exports imported by other stacks")
+            continue
         for stack in response['Imports']:
             if stack not in stacks_importing:
                 stacks_importing[stack] = list()
@@ -66,7 +69,7 @@ def remove_imports_from_stack_templates(aws_client, stacks_importing, exports):
             stack_id = stack_desc['StackId']  # original_stack_id
             if 'Parameters' in stack_desc:
                 stack_params = stack_desc['Parameters']
-            stack_template =  aws_client.cfn_get_template(stack_id=stack_id)
+            stack_template = aws_client.cfn_get_template(stack_id=stack_id)
             if not isinstance(stack_template, str):
                 stack_template = json.dumps(dict(stack_template))
             template = json.loads(to_json(stack_template))

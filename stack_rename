@@ -68,6 +68,8 @@ def main():
 
     verify_update = cfn.verify_action("Update", stack_id)
     if verify_update:
+        io_handle.write_json(output_file=f'{stack_name}.json', data=retain_template)
+        io_handle.write_yaml(output_file=f'{stack_name}.yaml', data=retain_template)
         update_response = aws_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
         aws_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
 
