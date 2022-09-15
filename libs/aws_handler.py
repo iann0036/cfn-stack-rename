@@ -15,6 +15,7 @@
 #  aws_handler - This handles various aws functions
 
 import base64
+import os
 import time
 
 import boto3
@@ -136,14 +137,17 @@ class AWS(object):
         response = self.client.get_caller_identity()
         return response
 
-    def upload_s3(self, file_name, bucket, object_name=None):
+    def upload_s3(self, file_name, s3_path=None, bucket=None, object_name=None):
         if not bucket:
-            bucket = self.data['aws']['s3']['bucket']
+            bucket = self.data['s3']['bucket']
 
-        if object_name is None:
+        if not s3_path:
+            s3_path = self.data['s3']['path']
+
+        if not object_name:
             object_name = os.path.basename(file_name)
 
-        object_name = f'stack_rename/{object_name}'
+        object_name = f'{s3_path}/{object_name}'
 
         try:
             response = self.client.upload_file(file_name, bucket, object_name)
@@ -243,6 +247,20 @@ class AWS(object):
         )
         return response
 
+    def s3_cfn_update_stack(self, stack_id, s3_url, capabilities=None, params=None):
+        if not capabilities:
+            capabilities = [
+                'CAPABILITY_NAMED_IAM',
+                'CAPABILITY_AUTO_EXPAND'
+            ]
+        response = self.client.update_stack(
+            StackName=stack_id,
+            TemplateUrl=s3_url,
+            Capabilities=capabilities,
+            Parameters=params
+        )
+        return response
+
     def cfn_create_changeset(self, stack_name, template, resources, params=None,
                              changeset_name=None, changeset_type=None, capabilities=None):
         if not isinstance(template, str):
@@ -260,6 +278,28 @@ class AWS(object):
             StackName=stack_name,
             ChangeSetName=changeset_name,
             TemplateBody=template,
+            ChangeSetType=changeset_type,
+            Capabilities=capabilities,
+            ResourcesToImport=resources,
+            Parameters=params
+        )
+        return response["StackId"], response
+
+    def s3_cfn_create_changeset(self, stack_name, s3_url, resources, params=None,
+                                changeset_name=None, changeset_type=None, capabilities=None):
+        if not capabilities:
+            capabilities = [
+                'CAPABILITY_NAMED_IAM',
+                'CAPABILITY_AUTO_EXPAND'
+            ]
+        if not changeset_type:
+            changeset_type = 'IMPORT'
+        if not changeset_name:
+            changeset_name = 'Stack-Rename-' + str(int(time.time()))
+        response = self.client.create_change_set(
+            StackName=stack_name,
+            ChangeSetName=changeset_name,
+            TemplateUrl=s3_url,
             ChangeSetType=changeset_type,
             Capabilities=capabilities,
             ResourcesToImport=resources,

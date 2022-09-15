@@ -2,23 +2,31 @@
 import json
 import time
 from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler
-from libs import cloudformation as cfn
+from libs import cloudformation_gather as cfn
 from cfn_flip import to_json
+from datetime import datetime
 
 __version__ = '0.1'
 
 
 def main():
-    aws_client = aws_handler.AWS(data=config_data)
     stack_name = options.stack_name
     new_stack_name = options.new_stack
+    changeset_name = f'Stack-Rename-{str(int(time.time()))}'
     new_stack_id = None
     stack_params = []
 
-    aws_client.login()
-    aws_client.cfn_client()
-    stack_desc = aws_client.cfn_describe_stack(stack_name=stack_name)
-    new_stack_desc = aws_client.cfn_describe_stack(stack_name=new_stack_name)
+    cfn_client = aws_handler.AWS(data=config_data)
+    cfn_client.login()
+    cfn_client.cfn_client()
+    stack_desc = cfn_client.cfn_describe_stack(stack_name=stack_name)
+    new_stack_desc = cfn_client.cfn_describe_stack(stack_name=new_stack_name)
+
+    enable_s3 = config_data['s3']['enable']
+    if enable_s3:
+        s3_client = aws_handler.AWS(data=config_data)
+        s3_client.login()
+        s3_client.s3_client()
 
     if not stack_desc:
         logging.error(f'stack: {stack_name} does not exist aborting')
@@ -32,20 +40,20 @@ def main():
 
     # for time being we will only inform the end user about the imported exports
     # and get them to make the necessary changes manually.
-    cfn.stacks_importing_exports(aws_client, stack_exports)
+    cfn.stacks_importing_exports(cfn_client, stack_exports)
 
     if 'Parameters' in stack_desc:
         stack_params = stack_desc['Parameters']
     stack_id = stack_desc['StackId']  # original_stack_id
-    current_stack_template = aws_client.cfn_get_template(stack_id=stack_id)  # original_template
+    current_stack_template = cfn_client.cfn_get_template(stack_id=stack_id)  # original_template
 
     # Convert template from ordered dict to normal python dict
     if not isinstance(current_stack_template, str):
         current_stack_template = json.dumps(dict(current_stack_template))
     stack_template = json.loads(to_json(current_stack_template))
 
-    stack_resources = aws_client.cfn_describe_resources(stack_id)  # original_resources
-    resource_drifts = cfn.detect_drift(aws_client, stack_id)
+    stack_resources = cfn_client.cfn_describe_resources(stack_id)  # original_resources
+    resource_drifts = cfn.detect_drift(cfn_client, stack_id)
 
     logging.info(f'Resource Drifts info found, sanitizing templates')
 
@@ -66,46 +74,72 @@ def main():
     retain_template = cfn.set_resource_retention(template=stack_template,
                                                  supported_resources=supported_imports)
 
-    verify_update = cfn.verify_action("Update", stack_id)
-    if verify_update:
-        io_handle.write_json(output_file=f'{stack_name}.json', data=retain_template)
-        io_handle.write_yaml(output_file=f'{stack_name}.yaml', data=retain_template)
-        update_response = aws_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
-        aws_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
-
     sanitized_resource_template, import_resources = cfn.sanitize_resources(config_data,
                                                                            resource_drifts,
                                                                            sanitized_template,
                                                                            supported_imports)
+    logging.info('Sanitized Resources, worked out change set resources to import parameters')
+
+    # remove outputs - not needed for creating change sets.
+    sanitized_resource_template.pop('Outputs', None)
+
+    # upload templates to s3 if required
+    if enable_s3:
+        time_stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
+        retain_file = f's3-templates/retain_{stack_name}_{time_stamp}.json'
+        changeset_file = f's3-templates/changeset_{new_stack_name}_{time_stamp}.json'
+        update_file = f's3-templates/update_{new_stack_name}_{time_stamp}.json'
+        io_handle.write_json(output_file=retain_file, data=retain_template)
+        io_handle.write_json(output_file=changeset_file, data=retain_template)
+        io_handle.write_json(output_file=update_file, data=retain_template)
+
+        retain_upload_success = s3_client.upload_s3(retain_file)
+        changeset_upload_success = s3_client.upload_s3(changeset_file)
+        update_upload_success = s3_client.upload_s3(update_file)
+
+        s3_bucket = config_data['s3']['bucket']
+
+        if not retain_upload_success:
+            raise ValueError(f'Failed to upload template file: {retain_file} to bucket: {s3_bucket}')
+        if not changeset_upload_success:
+            raise ValueError(f'Failed to upload template file: {changeset_file} to bucket: {s3_bucket}')
+        if not update_upload_success:
+            raise ValueError(f'Failed to upload template file: {update_file} to bucket: {s3_bucket}')
+
+
+    verify_update = cfn.verify_action("Update", stack_id)
+    if verify_update:
+        io_handle.write_yaml(output_file=f'{stack_name}.yaml', data=retain_template)
+        update_response = cfn_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
+        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
+
     verify_delete = cfn.verify_action('Delete', stack_id)
     if verify_delete:
-        delete_response = aws_client.cfn_delete_stack(stack_id=stack_id)
-        aws_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
+        delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
+        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
 
-    sanitized_resource_template.pop('Outputs', None)
-    changeset_name = f'Stack-Rename-{str(int(time.time()))}'
     verify_create_changeset = cfn.verify_action('Create ChangeSet', new_stack_name)
     if verify_create_changeset:
-        new_stack_id, changeset_response = aws_client.cfn_create_changeset(stack_name=new_stack_name,
+        new_stack_id, changeset_response = cfn_client.cfn_create_changeset(stack_name=new_stack_name,
                                                                            template=sanitized_resource_template,
                                                                            resources=import_resources,
                                                                            params=stack_params,
                                                                            changeset_name=changeset_name)
-        aws_client.cfn_waiter(stack_id=new_stack_id,
+        cfn_client.cfn_waiter(stack_id=new_stack_id,
                               waiter_type='change_set_create_complete',
                               changeset_name=changeset_name)
 
     verify_exec_changeset = cfn.verify_action('Execute ChangeSet', new_stack_id)
     if verify_exec_changeset:
-        aws_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
-        aws_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
+        cfn_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
+        cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
 
     logging.info("Cleaning up")
 
     verify_update_new_stack = cfn.verify_action('Update', new_stack_id)
     if verify_update_new_stack:
-        aws_client.cfn_update_stack(stack_id=new_stack_id, template=current_stack_template, params=stack_params)
-        aws_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_update_complete')
+        cfn_client.cfn_update_stack(stack_id=new_stack_id, template=current_stack_template, params=stack_params)
+        cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_update_complete')
 
     logging.warning(f'All complete \nIf you removed imports that this stack exported in any other stack '
                     f'please update those stacks and add in the imports.\n'
