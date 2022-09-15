@@ -151,14 +151,15 @@ def sanitize_template(data, template, resources, drifts):
     return supported_imports, non_importables, non_driftables, sanitized_template
 
 
-def sanitize_resources(data, drifts, template, supported_resources):
+def sanitize_resources(data, drifts, template, supported_imports):
     import_resources = []
     import_resource_counter = 0
     resource_identifiers = data['cloudformation']['resource_identifiers']
     sanitized_template = deepcopy(template)
     logging.info(f'Sanitizing resources for creating change set...')
 
-    for resource in supported_resources.keys():
+    for resource in supported_imports.keys():
+        #import_properties = resource_identifiers[drifted_resource['ResourceType']]['importProperties'].copy()
         sanitized_template['Resources'][resource]['DeletionPolicy'] = 'Retain'
         logging.debug(f'Added Retain Deletion Policy to resource: {resource}')
 
@@ -199,9 +200,9 @@ def sanitize_resources(data, drifts, template, supported_resources):
     return sanitized_template, import_resources
 
 
-def set_resource_retention(template, supported_resources):
+def set_resource_retention(template, supported_imports):
     retain_template = deepcopy(template)
-    for resource in supported_resources.keys():
+    for resource in supported_imports.keys():
         retain_template['Resources'][resource]['DeletionPolicy'] = 'Retain'
         logging.info(f'Added Retain Deletion Policy to resource: {resource}')
 

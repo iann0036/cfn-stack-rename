@@ -255,7 +255,7 @@ class AWS(object):
             ]
         response = self.client.update_stack(
             StackName=stack_id,
-            TemplateUrl=s3_url,
+            TemplateURL=s3_url,
             Capabilities=capabilities,
             Parameters=params
         )
@@ -299,7 +299,7 @@ class AWS(object):
         response = self.client.create_change_set(
             StackName=stack_name,
             ChangeSetName=changeset_name,
-            TemplateUrl=s3_url,
+            TemplateURL=s3_url,
             ChangeSetType=changeset_type,
             Capabilities=capabilities,
             ResourcesToImport=resources,

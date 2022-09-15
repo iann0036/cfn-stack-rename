@@ -78,6 +78,7 @@ class CommandCheck(object):
             self.data['s3']['enable'] = False
         if 'bucket' not in self.data['s3']:
             self.data['s3']['bucket'] = None
+        aws_region = self.data['aws']['region']
 
         if self.options.enable_s3:
             if not self.options.s3_bucket:
@@ -86,7 +87,7 @@ class CommandCheck(object):
             self.data['s3']['enable'] = True
             s3_bucket = self.data['s3']['bucket'] = self.options.s3_bucket
             s3_path = self.data['s3']['path'] = f'cfn_stack_rename'
-            self.data['s3']['uri'] = f's3://{s3_bucket}/{s3_path}'
+            self.data['s3']['uri'] = f'https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{s3_path}'
 
     def return_data(self):
         return self.data

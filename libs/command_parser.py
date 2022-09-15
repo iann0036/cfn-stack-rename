@@ -47,12 +47,12 @@ class Commands(object):
 
     def add_aws_config(self):
         self.parser.add_argument('-r', '--region', required=False, action='store',
-                                 help='Specify the aws region, defaults to "eu-west-2"')
+                                 help='Specify the aws region, defaults to config file setting')
         self.parser.add_argument('-p', '--profile', required=False, action='store',
                                  help='Specify the aws profile, defaults to "default"')
 
     def add_aws_s3(self):
-        self.parser.add_argument('-S', '--enable_s3', required=False, action='store_true',
+        self.parser.add_argument('-E', '--enable_s3', required=False, action='store_true',
                                  help='s3 required, defaults to False')
         self.parser.add_argument('-B', '--s3_bucket', required=False, action='store',
                                  help='Specify the aws s3 bucket to use')
