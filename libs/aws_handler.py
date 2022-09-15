@@ -247,7 +247,7 @@ class AWS(object):
         )
         return response
 
-    def s3_cfn_update_stack(self, stack_id, s3_url, capabilities=None, params=None):
+    def cfn_s3_update_stack(self, stack_id, s3_url, capabilities=None, params=None):
         if not capabilities:
             capabilities = [
                 'CAPABILITY_NAMED_IAM',
@@ -285,7 +285,7 @@ class AWS(object):
         )
         return response["StackId"], response
 
-    def s3_cfn_create_changeset(self, stack_name, s3_url, resources, params=None,
+    def cfn_s3_create_changeset(self, stack_name, s3_url, resources, params=None,
                                 changeset_name=None, changeset_type=None, capabilities=None):
         if not capabilities:
             capabilities = [

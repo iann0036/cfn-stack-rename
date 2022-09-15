@@ -84,9 +84,9 @@ class CommandCheck(object):
                 self.parser.print_help()
                 self.parser.error('An S3 Bucket name must be provided, to store artifacts into')
             self.data['s3']['enable'] = True
-            self.data['s3']['bucket'] = self.options.s3_bucket
+            s3_bucket = self.data['s3']['bucket'] = self.options.s3_bucket
             s3_path = self.data['s3']['path'] = f'cfn_stack_rename'
-            self.data['s3']['uri'] = f's3://{self.options.s3_bucket}/{s3_path}'
+            self.data['s3']['uri'] = f's3://{s3_bucket}/{s3_path}'
 
     def return_data(self):
         return self.data
