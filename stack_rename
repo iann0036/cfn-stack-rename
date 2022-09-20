@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import json
 import os.path
-import time
 from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler
 from libs import cloudformation_gather as cfn
 from cfn_flip import to_json
@@ -70,9 +69,6 @@ def main():
                                              stack_desc_resources,
                                              resource_drifts)
 
-    # del_res_template performs the delete operation from the original stack - this allows both stacks to exist
-    # while the change-set is executed, once successfully executed the entire stack can be deleted.
-
     logging.info('The following resources do not have drift detection')
     for ud_resource, ud_type in undriftables.items():
         logging.info(f'  * Resource: {ud_resource}, Type: {ud_type}')
@@ -104,9 +100,8 @@ def main():
     sanitized_resource_template.pop('Outputs', None)
 
     # Creating a proper log of everything being queried - this serves 2 purposes 1st sanity checking
-    # 2nd if this fails we have all the data required to be able to try and recover - there will
-    # be a recovery script added some time soon to try and recover and skip whatever resources
-    # failed the import process - they can then be recreated.
+    # 2nd if this fails we have all the data required to be able to try and recover - stack_recover
+    # serves this purpose.
     logging.info('Creating all necessary state information for record and possible recovery')
     config_data['state'][stack_name]['description'] = stack_desc
     config_data['state'][stack_name]['exports'] = stack_exports
@@ -135,21 +130,17 @@ def main():
         retain_file = f's3-templates/{date_stamp}/retain_{stack_name}.json'
         changeset_file = f's3-templates/{date_stamp}/changeset_{new_stack_name}.json'
         update_file = f's3-templates/{date_stamp}/update_{new_stack_name}.json'
-        del_update_file = f's3-templates/{date_stamp}/delete_update_{stack_name}.json'
         retain_url = f"{config_data['s3']['uri']}/{os.path.basename(retain_file)}"
         changeset_url = f"{config_data['s3']['uri']}/{os.path.basename(changeset_file)}"
         update_url = f"{config_data['s3']['uri']}/{os.path.basename(update_file)}"
-        del_update_url = f"{config_data['s3']['uri']}/{os.path.basename(del_update_file)}"
 
         io_handle.write_json(output_file=retain_file, data=retain_template)
         io_handle.write_json(output_file=changeset_file, data=sanitized_resource_template)
         io_handle.write_json(output_file=update_file, data=stack_template)
-        io_handle.write_json(output_file=del_update_file, data=del_res_template)
 
         retain_upload_success = s3_client.upload_s3(retain_file)
         changeset_upload_success = s3_client.upload_s3(changeset_file)
         update_upload_success = s3_client.upload_s3(update_file)
-        del_update_upload_success = s3_client.upload_s3(del_update_file)
 
         if not retain_upload_success:
             raise ValueError(f'Failed to upload template {retain_file} to : {retain_url}')
@@ -157,13 +148,10 @@ def main():
             raise ValueError(f'Failed to upload template {changeset_file} to: {changeset_url}')
         if not update_upload_success:
             raise ValueError(f'Failed to upload template {update_file} to: {update_url}')
-        if not del_update_upload_success:
-            raise ValueError(f'Failed to upload template {del_update_file} to: {del_update_url}')
 
         logging.info(f'Successfully uploaded template {retain_file} to : {retain_url}')
         logging.info(f'Successfully uploaded template {changeset_file} to: {changeset_url}')
         logging.info(f'Successfully uploaded template {update_file} to: {update_url}')
-        logging.info(f'Successfully uploaded template {del_update_file} to: {del_update_url}')
 
     verify_update = cfn.verify_action("Update", stack_id)
     if verify_update:
@@ -175,21 +163,8 @@ def main():
         if update_response == "error":
             cfn.verify_error()
 
-    # This should only remove resources from the existing stack that have the retain flag set while keeping everything
-    # else in the existing stack - when we have imported everything across then we can remove this stack and recreate
-    # all of these resources in the new stack.
-    #verify_remove = cfn.verify_action('Remove Resources by Update', stack_id)
-    #if verify_remove:
-    #    if enable_s3:
-    #        remove_response = cfn_client.cfn_s3_update_stack(stack_id, del_update_url, params=stack_params)
-    #    else:
-    #        remove_response = cfn_client.cfn_update_stack(stack_id, del_res_template, params=stack_params)
-    #    cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
-    #    if update_response == "error":
-    #        cfn.verify_error()
-    # At this stage the old stack should be good to remove, the new stack should have everything we need imported.
-
-    # CFN does not like this - the whole stack has to be deleted nothing really can be done here other than to do it.
+    # The whole stack has to be deleted nothing really can be done here other than to do it.
+    # use stack_recover if the create_changeset operation fails.
     verify_delete = cfn.verify_action('Delete', stack_id)
     if verify_delete:
         delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
@@ -217,7 +192,6 @@ def main():
     if verify_exec_changeset:
         cfn_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
         cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
-
 
     # now we apply the original stack onto the new stack this will rebuild anything that couldn't be imported
     # and clean up everything else including the retain flags we set for migration.

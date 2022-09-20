@@ -77,6 +77,9 @@ def depends_on_data(resources_removed, template):
     # This is 1 dependency I know exists - this function really needs to be smarter,
     # but it really is difficult without working out all the interdependent relationships that can exist.
     # api gateways that use lambdas require the lambdas to exist before api gateway can be deployed / updated.
+    # even with this cloudformation refuses to work properly in my testing,
+    # I have disabled its usage for the time being. Basically best approach is to remove all resources causing errors
+    # which recover_data does already anyway.
 
     for sr_name, sr_type in resources_removed.items():
         if sr_type == "AWS::Lambda::Function" or sr_type == "AWS::Lambda::Alias" or sr_type == "AWS::Lambda::Version":
