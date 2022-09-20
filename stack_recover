@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
-import json
 import os.path
-import time
 from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler
 from libs import cloudformation_recover as cfn
 from datetime import datetime
-from pprint import pprint
 
 __version__ = '0.1'
 
@@ -45,31 +42,39 @@ def main():
     if new_stack_desc:
         new_stack_id = new_stack_desc['StackId']
 
-    changeset_data, sanitized_data = cfn.recover_data(supported_resources,
-                                                      sanitized_template,
-                                                      change_set_data)
+    changeset_data, sanitized_data, resources_removed = cfn.recover_data(supported_resources,
+                                                                         sanitized_template,
+                                                                         change_set_data)
+
+    #dependency_data = cfn.depends_on_data(resources_removed, stack_template)
 
     # upload templates to s3 if required
     if s3_enable:
         changeset_file = f's3-templates/{cur_date_stamp}/changeset_{new_stack_name}.json'
         update_file = f's3-templates/{cur_date_stamp}/update_{new_stack_name}.json'
+        # dependency_file = f's3-templates/{cur_date_stamp}/dependency_{new_stack_name}.json'
         changeset_url = f"{s3_uri}/{os.path.basename(changeset_file)}"
         update_url = f"{s3_uri}/{os.path.basename(update_file)}"
+        # dependency_url = f"{s3_uri}/{os.path.basename(dependency_file)}"
 
         io_handle.write_json(output_file=changeset_file, data=sanitized_data)
         io_handle.write_json(output_file=update_file, data=stack_template)
+        # io_handle.write_json(output_file=dependency_file, data=dependency_data)
 
         changeset_upload_success = s3_client.upload_s3(changeset_file)
         update_upload_success = s3_client.upload_s3(update_file)
+        # dependency_upload_success = s3_client.upload_s3(dependency_file)
 
         if not changeset_upload_success:
             raise ValueError(f'Failed to upload template {changeset_file} to: {changeset_url}')
         if not update_upload_success:
             raise ValueError(f'Failed to upload template {update_file} to: {update_url}')
+        # if not dependency_upload_success:
+        #    raise ValueError(f'Failed to upload template {dependency_file} to: {dependency_url}')
 
         logging.info(f'Successfully uploaded template {changeset_file} to: {changeset_url}')
         logging.info(f'Successfully uploaded template {update_file} to: {update_url}')
-
+        # logging.info(f'Successfully uploaded template {dependency_file} to: {dependency_url}')
 
     # should we delete the failed new_stack ?
     if new_stack_id:
@@ -106,12 +111,24 @@ def main():
         cfn_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
         cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
 
-    logging.info("Cleaning up")
+    # updating stacks and adding dependsOn
+    #verify_update_dependency_stack = cfn.verify_action('Update Dependency Template', new_stack_id)
+    #if verify_update_dependency_stack:
+    #    if s3_enable:
+    #        cfn_client.cfn_s3_update_stack(new_stack_id, dependency_url, params=stack_params)
+    #    else:
+    #        cfn_client.cfn_update_stack(new_stack_id, dependency_data, params=stack_params)
+    #    cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_update_complete')
+
+    logging.info("Cleaning up - Applying the original Template on to the new stack.")
 
     verify_update_new_stack = cfn.verify_action('Update', new_stack_id)
     if verify_update_new_stack:
-        # cfn_client.cfn_s3_update_stack(new_stack_id, update_url, params=stack_params)
-        cfn_client.cfn_s3_update_stack(new_stack_id, update_url, params=stack_params)
+        if s3_enable:
+            cfn_client.cfn_s3_update_stack(new_stack_id, update_url, params=stack_params)
+        else:
+            cfn_client.cfn_update_stack(new_stack_id, stack_template, params=stack_params)
+
         cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_update_complete')
 
     logging.warning(f'All complete \nIf you removed imports that this stack exported in any other stack '
