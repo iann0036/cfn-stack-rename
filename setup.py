@@ -4,7 +4,7 @@ from setuptools import setup
 
 setup(
     name='cfn_stack_rename',
-    version='0.1',
+    version='0.99beta1',
     description='CloudFormation Stack Rename Tool',
     include_package_data=True,
     packages=['libs'],

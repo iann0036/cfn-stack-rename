@@ -6,7 +6,7 @@ from libs import cloudformation_gather as cfn
 from cfn_flip import to_json
 from datetime import datetime
 
-__version__ = '0.1'
+__version__ = '0.99beta1'
 
 
 def main():

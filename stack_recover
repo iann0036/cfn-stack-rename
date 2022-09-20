@@ -4,7 +4,7 @@ from libs import command_parser, command_checker, custom_logger, file_handler, a
 from libs import cloudformation_recover as cfn
 from datetime import datetime
 
-__version__ = '0.1'
+__version__ = '0.99beta1'
 
 
 def main():
