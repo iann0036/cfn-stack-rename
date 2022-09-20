@@ -23,6 +23,19 @@ def verify_error():
     return True
 
 
+def verify_drift(resource, property):
+    r_name = resource['LogicalResourceId']
+    r_type = resource['ResourceType']
+    logging.info(f'Resource: {r_name}, Type: {r_type}, drift detected for property: {property},'
+                 f' not in actual_properties. For some resources like lambda functions, '
+                 f' deployed using SAM, it is best to ignore the drift')
+    read_input = str(input(f'Ignore drift for resource: {r_name}? (yes to do so): '))
+    if read_input.lower() != 'yes':
+        logging.info('Updating resource to use actual properties')
+        return False
+    return True
+
+
 def stack_exports(stack_desc):
     exports = dict()
     for outputs in stack_desc['Outputs']:
@@ -124,6 +137,7 @@ def sanitize_template(data, template, resources, drifts):
     non_driftables = dict()
     resource_identifiers = data['cloudformation']['resource_identifiers']
     sanitized_template = deepcopy(template)
+    del_res_template = deepcopy(template)  # this template preforms the delete operation from the original stack
 
     for k, v in template['Resources'].items():
         found = False
@@ -150,9 +164,10 @@ def sanitize_template(data, template, resources, drifts):
             non_importables[k] = template["Resources"][k]["Type"]
             del sanitized_template['Resources'][k]
         if template['Resources'][k]['Type'] in resource_identifiers.keys():
-            logging.info(f'Resource: {k} Can be imported')
             if k not in supported_imports.keys():
+                logging.info(f'Resource: {k} Can be imported')
                 supported_imports[k] = template['Resources'][k]['Type']
+                del del_res_template['Resources'][k]
 
     # removing all entries from non_driftables that also do not support importing:
     for resource in non_importables.keys():
@@ -162,7 +177,7 @@ def sanitize_template(data, template, resources, drifts):
     logging.debug(f'Supported imports: {supported_imports}')
     logging.debug(f'Unsupported imports: {non_importables}')
     logging.debug(f'Unsupported drifts: {non_driftables}')
-    return supported_imports, non_importables, non_driftables, sanitized_template
+    return supported_imports, non_importables, non_driftables, sanitized_template, del_res_template
 
 
 def sanitize_resources(data, drifts, template, supported_imports, undriftables, stack_desc_resources):
@@ -199,39 +214,52 @@ def sanitize_resources(data, drifts, template, supported_imports, undriftables, 
 
     for drifted_resource in drifts:
         resource_identifier = {}
+        resource_name = drifted_resource['LogicalResourceId']
+        resource_type = drifted_resource['ResourceType']
+        actual_properties = json.loads(drifted_resource['ActualProperties'])
+        expected_properties = json.loads(drifted_resource['ExpectedProperties'])
+        resource_properties = actual_properties
 
-        import_properties = resource_identifiers[drifted_resource['ResourceType']]['importProperties'].copy()
+        import_properties = resource_identifiers[resource_type]['importProperties'].copy()
         if 'PhysicalResourceIdContext' in drifted_resource:
             for prop in drifted_resource['PhysicalResourceIdContext']:
                 if prop['Key'] in import_properties:
                     resource_identifier[prop['Key']] = prop['Value']
                     import_properties.remove(prop['Key'])
 
-        # This is wrong if there are 2 import_properties one of the import properties will be found as an id
-        # within the drifted resource 'ExpectedProperties'. So need to check the import_properties match the key against
-        # the key against the 'ExpectedProperties' assign the value from there and the 2nd key will by the PhysicalResourceId.
-        if len(import_properties) > 2:
-            logging.error(f'{drifted_resource}: Unexpected additional '
-                          f'importable keys required {import_properties}, aborting...')
-            raise ValueError(f'Too many import properties: {import_properties}, should only have 1')
-        elif len(import_properties) == 2:
-            resource_identifier[import_properties[0]] = drifted_resource['LogicalResourceId']
-            resource_identifier[import_properties[1]] = drifted_resource['PhysicalResourceId']
+        if len(import_properties) > 1:
+            logging.info(f"Current import properties: {import_properties}")
+            for identifier in import_properties:
+                if identifier in actual_properties.keys():
+                    resource_identifier[identifier] = actual_properties[identifier]
+            import_properties[:] = (res_id for res_id in import_properties if res_id not in actual_properties.keys())
+            logging.info(f"Import properties after modification: {import_properties}")
+            if len(import_properties) > 1:
+                logging.error(f'{drifted_resource}: Unexpected additional '
+                              f'importable keys required {import_properties}, aborting...')
+                raise ValueError(f'Too many import properties: {import_properties}, should only have 1')
+            resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
         elif len(import_properties) == 1:
             resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
 
-        sanitized_template['Resources'][drifted_resource['LogicalResourceId']] = {
+        for key in expected_properties.keys():
+            if key not in actual_properties.keys():
+                ignore_drift = verify_drift(drifted_resource, key)
+                if ignore_drift():
+                    resource_properties = expected_properties
+
+        sanitized_template['Resources'][resource_name] = {
             'DeletionPolicy': 'Retain',
-            'Type': drifted_resource['ResourceType'],
-            'Properties': json.loads(drifted_resource['ActualProperties'])
+            'Type': resource_type,
+            'Properties': resource_properties
         }
-        logging.info(f'Updating stack resource: {drifted_resource["LogicalResourceId"]}')
+        logging.info(f'Updating stack resource: {resource_name}')
         logging.debug(f'Updating stack resource as follows: '
-                      f'{sanitized_template["Resources"][drifted_resource["LogicalResourceId"]]}')
+                      f'{sanitized_template["Resources"][resource_name]}')
 
         import_resources.append({
-            'ResourceType': drifted_resource['ResourceType'],
-            'LogicalResourceId': drifted_resource['LogicalResourceId'],
+            'ResourceType': resource_type,
+            'LogicalResourceId': resource_name,
             'ResourceIdentifier': resource_identifier
         })
         logging.info(f'Added the following to import resources: '

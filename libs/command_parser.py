@@ -70,6 +70,12 @@ class Commands(object):
         self.parser.add_argument('-n', '--new_stack', required=True, action='store',
                                  help='Specify the new cloudformation stack name')
 
+    def add_timestamp(self):
+        self.parser.add_argument('-T', '--time_stamp', required=False, action='store', default=None,
+                                 help=f'Specify the timestamp for state, defaults to the value stored in '
+                                      f'state/current_state.json, the format should be: ddMonthyyyy-hhmmss, for '
+                                      f'example: 20Sep2022-184722')
+
     def add_output(self):
         self.parser.add_argument("--export", "-e", required=False, action='store_true',
                                  help="This option is required if you are using bash or Linux")

@@ -114,5 +114,24 @@ class CommandCheck(object):
 
         io_handle.make_dir(path=state_location)
 
+    def read_state(self, io_handle):
+
+        date_stamp = io_handle.read_file('state/current_state.json')['date']
+        if self.options.time_stamp:
+            date_stamp = self.options.time_stamp
+
+        if not date_stamp:
+            self.parser.print_help()
+            self.parser.error(f'Date Stamp: {date_stamp} is empty, please provide a correct value')
+
+        state_location = f'state/{date_stamp}'
+
+        if not io_handle.dir_exists(state_location):
+            self.parser.print_help()
+            self.parser.error(f'Date Stamp: {date_stamp} is not valid {state_location} could not be found')
+
+        state_data = io_handle.read_file(f'{state_location}/state.json')
+        return date_stamp, state_data
+
     def return_data(self):
         return self.data

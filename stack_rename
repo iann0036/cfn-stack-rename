@@ -61,10 +61,17 @@ def main():
 
     logging.info(f'Resource Drifts info found, sanitizing templates')
 
-    supported_imports, unsupported_imports, undriftables, sanitized_template = cfn.sanitize_template(config_data,
-                                                                                                     stack_template,
-                                                                                                     stack_desc_resources,
-                                                                                                     resource_drifts)
+    supported_imports, \
+    unsupported_imports, \
+    undriftables, \
+    sanitized_template, \
+    del_res_template = cfn.sanitize_template(config_data,
+                                             stack_template,
+                                             stack_desc_resources,
+                                             resource_drifts)
+
+    # del_res_template performs the delete operation from the original stack - this allows both stacks to exist
+    # while the change-set is executed, once successfully executed the entire stack can be deleted.
 
     logging.info('The following resources do not have drift detection')
     for ud_resource, ud_type in undriftables.items():
@@ -179,21 +186,32 @@ def main():
                               waiter_type='change_set_create_complete',
                               changeset_name=changeset_name)
 
-    # frankly this is very bad - we should be deleting the resources from the stack which we are importing
-    # then on final clean-up when everything has worked we delete the stack ie this should be another update
-    # only keeping the resources not being imported in the original stack which should automatically delete
-    # all resources now removed from the template - those resources should not actually be deleted as they
-    # have the retain flag set.
-    verify_delete = cfn.verify_action('Delete', stack_id)
-    if verify_delete:
-        delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
-        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
+    # This should only remove resources from the existing stack that have the retain flag set while keeping everything
+    # else in the existing stack - when we have imported everything across then we can remove this stack and recreate
+    # all of these resources in the new stack.
+    verify_remove = cfn.verify_action('Remove Resources by Update', stack_id)
+    if verify_remove:
+        if enable_s3:
+            remove_response = cfn_client.cfn_s3_update_stack(stack_id, retain_url, params=stack_params)
+        else:
+            remove_response = cfn_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
+        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
+        if update_response == "error":
+            cfn.verify_error()
 
     verify_exec_changeset = cfn.verify_action('Execute ChangeSet', new_stack_id)
     if verify_exec_changeset:
         cfn_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
         cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
 
+    # At this stage the old stack should be good to remove, the new stack should have everything we need imported.
+    verify_delete = cfn.verify_action('Delete', stack_id)
+    if verify_delete:
+        delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
+        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
+
+    # now we apply the original stack onto the new stack this will rebuild anything that couldn't be imported
+    # and clean up everything else including the retain flags we set for migration.
     verify_update_new_stack = cfn.verify_action('Update', new_stack_id)
     if verify_update_new_stack:
         if enable_s3:
@@ -214,7 +232,7 @@ def main():
 
 if __name__ == "__main__":
     name = 'stack_rename'
-    date_stamp = datetime.utcnow().strftime("%d%b%Y_%H%M%S")
+    date_stamp = datetime.utcnow().strftime("%d%b%Y-%H%M%S")
     # initialise the command line checker, add in all of the options
     cmd_opts = command_parser.Commands(name=name, version=__version__)
     cmd_opts.add_config()
