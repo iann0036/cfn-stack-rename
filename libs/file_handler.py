@@ -184,6 +184,10 @@ class FileHandler(object):
             logging.error("Error Data / Output File Not Provided")
             sys.exit(1)
         self.make_dir(path=output_file)
+        # making sure all objects are json serialized - converting
+        # anything not json compliant into a string - so we can then write
+        # it out into a json config file.
+        data = json.loads(json.dumps(data, default=str))
         with open(output_file, 'w') as output_file:
             json.dump(data, output_file, indent=4)
 

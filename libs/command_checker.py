@@ -89,5 +89,30 @@ class CommandCheck(object):
             s3_path = self.data['s3']['path'] = f'cfn_stack_rename'
             self.data['s3']['uri'] = f'https://{s3_bucket}.s3.{aws_region}.amazonaws.com/{s3_path}'
 
+    def record_state(self, io_handle, date_stamp):
+        if 'state' not in self.data:
+            self.data['state'] = dict()
+
+        self.data['state'] = dict()
+        state_location = self.data['state']['location'] = f'state/{date_stamp}'
+        self.data['state']['date'] = date_stamp
+        stack_name = self.data['state']['stack_name'] = self.options.stack_name
+        new_stack = self.data['state']['new_stack'] = self.options.new_stack
+        self.data['state']['change_set_name'] = f'stack-rename-{date_stamp}'
+        self.data['state'][stack_name] = dict()
+        self.data['state'][new_stack] = dict()
+        self.data['state'][stack_name]['description'] = dict()
+        self.data['state'][stack_name]['exports'] = dict()
+        self.data['state'][stack_name]['imported_by'] = dict()
+        self.data['state'][stack_name]['resources'] = dict()
+        self.data['state'][stack_name]['drifts'] = dict()
+        self.data['state'][stack_name]['change_set'] = dict()
+        self.data['state'][stack_name]['params'] = dict()
+        self.data['state'][stack_name]['supported_resources'] = dict()
+        self.data['state'][stack_name]['unsupported_resources'] = dict()
+        self.data['state'][stack_name]['undriftable_resources'] = dict()
+
+        io_handle.make_dir(path=state_location)
+
     def return_data(self):
         return self.data

@@ -13,7 +13,7 @@ __version__ = '0.1'
 def main():
     stack_name = options.stack_name
     new_stack_name = options.new_stack
-    changeset_name = f'Stack-Rename-{str(int(time.time()))}'
+    changeset_name = config_data['state']['change_set_name']
     retain_url = None
     changeset_url = None
     update_url = None
@@ -44,7 +44,7 @@ def main():
 
     # for time being we will only inform the end user about the imported exports
     # and get them to make the necessary changes manually.
-    cfn.stacks_importing_exports(cfn_client, stack_exports)
+    stacks_importing = cfn.stacks_importing_exports(cfn_client, stack_exports)
 
     if 'Parameters' in stack_desc:
         stack_params = stack_desc['Parameters']
@@ -58,13 +58,6 @@ def main():
 
     stack_desc_resources = cfn_client.cfn_describe_resources(stack_id)  # original_resources
     resource_drifts = cfn.detect_drift(cfn_client, stack_id)
-
-    stack_desc_resources_fmt = json.loads(json.dumps(stack_desc_resources, default=str))
-    resource_drifts_fmt = json.loads(json.dumps(resource_drifts, default=str))
-
-    io_handle.write_json(output_file="stack_resources.json", data=stack_desc_resources_fmt)
-    io_handle.write_json(output_file="resource_drifts.json", data=resource_drifts_fmt)
-    io_handle.write_json(output_file="stack_parameters.json", data=stack_params)
 
     logging.info(f'Resource Drifts info found, sanitizing templates')
 
@@ -103,12 +96,38 @@ def main():
     # remove outputs - not needed for creating change sets.
     sanitized_resource_template.pop('Outputs', None)
 
+    # Creating a proper log of everything being queried - this serves 2 purposes 1st sanity checking
+    # 2nd if this fails we have all the data required to be able to try and recover - there will
+    # be a recovery script added some time soon to try and recover and skip whatever resources
+    # failed the import process - they can then be recreated.
+    logging.info('Creating all necessary state information for record and possible recovery')
+    config_data['state'][stack_name]['description'] = stack_desc
+    config_data['state'][stack_name]['exports'] = stack_exports
+    config_data['state'][stack_name]['imported_by'] = stacks_importing
+    config_data['state'][stack_name]['params'] = stack_params
+    config_data['state'][stack_name]['stack_id'] = stack_id
+    config_data['state'][stack_name]['resources'] = stack_desc_resources
+    config_data['state'][stack_name]['drifts'] = resource_drifts
+    config_data['state'][stack_name]['supported_resources'] = supported_imports
+    config_data['state'][stack_name]['unsupported_resources'] = unsupported_imports
+    config_data['state'][stack_name]['undriftable_resources'] = undriftables
+    config_data['state'][stack_name]['change_set_data'] = import_resources
+    state_path = config_data['state']['location']
+
+    io_handle.write_json(output_file=f"{state_path}/state.json", data=config_data)
+    io_handle.write_json(output_file=f"{state_path}/resources.json", data=stack_desc_resources)
+    io_handle.write_json(output_file=f"{state_path}/drifts.json", data=resource_drifts)
+    io_handle.write_json(output_file=f"{state_path}/parameters.json", data=stack_params)
+    io_handle.write_json(output_file=f"{state_path}/change_set.json", data=import_resources)
+    io_handle.write_json(output_file=f"{state_path}/unmodified_template.json", data=stack_template)
+    io_handle.write_json(output_file=f"{state_path}/retain_template.json", data=retain_template)
+    io_handle.write_json(output_file=f"{state_path}/change_set_template.json", data=sanitized_resource_template)
+
     # upload templates to s3 if required
     if enable_s3:
-        time_stamp = datetime.utcnow().strftime("%Y%m%d%H%M%S")
-        retain_file = f's3-templates/retain_{stack_name}_{time_stamp}.json'
-        changeset_file = f's3-templates/changeset_{new_stack_name}_{time_stamp}.json'
-        update_file = f's3-templates/update_{new_stack_name}_{time_stamp}.json'
+        retain_file = f's3-templates/{date_stamp}/retain_{stack_name}.json'
+        changeset_file = f's3-templates/{date_stamp}/changeset_{new_stack_name}.json'
+        update_file = f's3-templates/{date_stamp}/update_{new_stack_name}.json'
         retain_url = f"{config_data['s3']['uri']}/{os.path.basename(retain_file)}"
         changeset_url = f"{config_data['s3']['uri']}/{os.path.basename(changeset_file)}"
         update_url = f"{config_data['s3']['uri']}/{os.path.basename(update_file)}"
@@ -139,7 +158,6 @@ def main():
         else:
             update_response = cfn_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
         cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
-
         if update_response == "error":
             cfn.verify_error()
 
@@ -163,9 +181,9 @@ def main():
 
     # frankly this is very bad - we should be deleting the resources from the stack which we are importing
     # then on final clean-up when everything has worked we delete the stack ie this should be another update
-    # using the retain sanitized_resource_template but applied to the original stack which should automatically delete
-    # all resources now removed from the template. - it is still probably not going to work right because cloudformation is
-    # awful. 
+    # only keeping the resources not being imported in the original stack which should automatically delete
+    # all resources now removed from the template - those resources should not actually be deleted as they
+    # have the retain flag set.
     verify_delete = cfn.verify_action('Delete', stack_id)
     if verify_delete:
         delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
@@ -196,6 +214,7 @@ def main():
 
 if __name__ == "__main__":
     name = 'stack_rename'
+    date_stamp = datetime.utcnow().strftime("%d%b%Y_%H%M%S")
     # initialise the command line checker, add in all of the options
     cmd_opts = command_parser.Commands(name=name, version=__version__)
     cmd_opts.add_config()
@@ -216,4 +235,5 @@ if __name__ == "__main__":
     cmd_check.aws_auth()
     cmd_check.aws_data(io_handle=io_handle)
     cmd_check.aws_s3()
+    cmd_check.record_state(io_handle, date_stamp)
     main()

@@ -13,6 +13,7 @@ def verify_action(action, stack_name):
         return False
     return True
 
+
 def verify_error():
     logging.warning(f'An error occurred displayed above - this may just mean the operation has already been done')
     read_input = str(input('Do you wish to continue? (YES to do so): '))
@@ -20,7 +21,6 @@ def verify_error():
         logging.info('Exiting as requested')
         exit(1)
     return True
-
 
 
 def stack_exports(stack_desc):
@@ -128,7 +128,7 @@ def sanitize_template(data, template, resources, drifts):
     for k, v in template['Resources'].items():
         found = False
         resource_exists = False
-        # logging.info(f'Template resource scanning currently key:{k} ::  value:{v}')
+        logging.debug(f'Template resource scanning currently key:{k} ::  value:{v}')
 
         for deployed_resource in resources:
             if k == deployed_resource['LogicalResourceId']:
