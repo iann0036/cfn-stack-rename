@@ -175,6 +175,26 @@ def main():
         if update_response == "error":
             cfn.verify_error()
 
+    # This should only remove resources from the existing stack that have the retain flag set while keeping everything
+    # else in the existing stack - when we have imported everything across then we can remove this stack and recreate
+    # all of these resources in the new stack.
+    #verify_remove = cfn.verify_action('Remove Resources by Update', stack_id)
+    #if verify_remove:
+    #    if enable_s3:
+    #        remove_response = cfn_client.cfn_s3_update_stack(stack_id, del_update_url, params=stack_params)
+    #    else:
+    #        remove_response = cfn_client.cfn_update_stack(stack_id, del_res_template, params=stack_params)
+    #    cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
+    #    if update_response == "error":
+    #        cfn.verify_error()
+    # At this stage the old stack should be good to remove, the new stack should have everything we need imported.
+
+    # CFN does not like this - the whole stack has to be deleted nothing really can be done here other than to do it.
+    verify_delete = cfn.verify_action('Delete', stack_id)
+    if verify_delete:
+        delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
+        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
+
     verify_create_changeset = cfn.verify_action('Create ChangeSet', new_stack_name)
     if verify_create_changeset:
         if enable_s3:
@@ -193,29 +213,11 @@ def main():
                               waiter_type='change_set_create_complete',
                               changeset_name=changeset_name)
 
-    # This should only remove resources from the existing stack that have the retain flag set while keeping everything
-    # else in the existing stack - when we have imported everything across then we can remove this stack and recreate
-    # all of these resources in the new stack.
-    verify_remove = cfn.verify_action('Remove Resources by Update', stack_id)
-    if verify_remove:
-        if enable_s3:
-            remove_response = cfn_client.cfn_s3_update_stack(stack_id, del_update_url, params=stack_params)
-        else:
-            remove_response = cfn_client.cfn_update_stack(stack_id, del_res_template, params=stack_params)
-        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
-        if update_response == "error":
-            cfn.verify_error()
-
     verify_exec_changeset = cfn.verify_action('Execute ChangeSet', new_stack_id)
     if verify_exec_changeset:
         cfn_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
         cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
 
-    # At this stage the old stack should be good to remove, the new stack should have everything we need imported.
-    verify_delete = cfn.verify_action('Delete', stack_id)
-    if verify_delete:
-        delete_response = cfn_client.cfn_delete_stack(stack_id=stack_id)
-        cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_delete_complete')
 
     # now we apply the original stack onto the new stack this will rebuild anything that couldn't be imported
     # and clean up everything else including the retain flags we set for migration.

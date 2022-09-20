@@ -220,6 +220,7 @@ def sanitize_resources(data, drifts, template, supported_imports, undriftables, 
         actual_properties = json.loads(drifted_resource['ActualProperties'])
         expected_properties = json.loads(drifted_resource['ExpectedProperties'])
         resource_properties = actual_properties
+        expected_resource_name = None
 
         import_properties = resource_identifiers[resource_type]['importProperties'].copy()
         if 'PhysicalResourceIdContext' in drifted_resource:
@@ -244,8 +245,11 @@ def sanitize_resources(data, drifts, template, supported_imports, undriftables, 
             resource_identifier[import_properties[0]] = drifted_resource['PhysicalResourceId']
 
         for key in expected_properties.keys():
+            if expected_resource_name == resource_name:
+                continue
             if key not in actual_properties.keys():
                 ignore_drift = verify_drift(drifted_resource, key)
+                expected_resource_name = resource_name
                 if ignore_drift:
                     resource_properties = expected_properties
 
