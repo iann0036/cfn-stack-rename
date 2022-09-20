@@ -135,17 +135,21 @@ def main():
         retain_file = f's3-templates/{date_stamp}/retain_{stack_name}.json'
         changeset_file = f's3-templates/{date_stamp}/changeset_{new_stack_name}.json'
         update_file = f's3-templates/{date_stamp}/update_{new_stack_name}.json'
+        del_update_file = f's3-templates/{date_stamp}/delete_update_{stack_name}.json'
         retain_url = f"{config_data['s3']['uri']}/{os.path.basename(retain_file)}"
         changeset_url = f"{config_data['s3']['uri']}/{os.path.basename(changeset_file)}"
         update_url = f"{config_data['s3']['uri']}/{os.path.basename(update_file)}"
+        del_update_url = f"{config_data['s3']['uri']}/{os.path.basename(del_update_file)}"
 
         io_handle.write_json(output_file=retain_file, data=retain_template)
         io_handle.write_json(output_file=changeset_file, data=sanitized_resource_template)
         io_handle.write_json(output_file=update_file, data=stack_template)
+        io_handle.write_json(output_file=del_update_file, data=del_res_template)
 
         retain_upload_success = s3_client.upload_s3(retain_file)
         changeset_upload_success = s3_client.upload_s3(changeset_file)
         update_upload_success = s3_client.upload_s3(update_file)
+        del_update_upload_success = s3_client.upload_s3(del_update_file)
 
         if not retain_upload_success:
             raise ValueError(f'Failed to upload template {retain_file} to : {retain_url}')
@@ -153,10 +157,13 @@ def main():
             raise ValueError(f'Failed to upload template {changeset_file} to: {changeset_url}')
         if not update_upload_success:
             raise ValueError(f'Failed to upload template {update_file} to: {update_url}')
+        if not del_update_upload_success:
+            raise ValueError(f'Failed to upload template {del_update_file} to: {del_update_url}')
 
         logging.info(f'Successfully uploaded template {retain_file} to : {retain_url}')
         logging.info(f'Successfully uploaded template {changeset_file} to: {changeset_url}')
         logging.info(f'Successfully uploaded template {update_file} to: {update_url}')
+        logging.info(f'Successfully uploaded template {del_update_file} to: {del_update_url}')
 
     verify_update = cfn.verify_action("Update", stack_id)
     if verify_update:
@@ -192,9 +199,9 @@ def main():
     verify_remove = cfn.verify_action('Remove Resources by Update', stack_id)
     if verify_remove:
         if enable_s3:
-            remove_response = cfn_client.cfn_s3_update_stack(stack_id, retain_url, params=stack_params)
+            remove_response = cfn_client.cfn_s3_update_stack(stack_id, del_update_url, params=stack_params)
         else:
-            remove_response = cfn_client.cfn_update_stack(stack_id, retain_template, params=stack_params)
+            remove_response = cfn_client.cfn_update_stack(stack_id, del_res_template, params=stack_params)
         cfn_client.cfn_waiter(stack_id=stack_id, waiter_type='stack_update_complete')
         if update_response == "error":
             cfn.verify_error()

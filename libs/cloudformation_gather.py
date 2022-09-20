@@ -33,6 +33,7 @@ def verify_drift(resource, property):
     if read_input.lower() != 'yes':
         logging.info('Updating resource to use actual properties')
         return False
+    logging.info('Updating resource to use expected properties')
     return True
 
 
@@ -245,7 +246,7 @@ def sanitize_resources(data, drifts, template, supported_imports, undriftables, 
         for key in expected_properties.keys():
             if key not in actual_properties.keys():
                 ignore_drift = verify_drift(drifted_resource, key)
-                if ignore_drift():
+                if ignore_drift:
                     resource_properties = expected_properties
 
         sanitized_template['Resources'][resource_name] = {

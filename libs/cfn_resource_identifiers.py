@@ -96,6 +96,7 @@ def resources():
         },
         "AWS::ApiGateway::Deployment": {
             "importProperties": [
+                "DeploymentId",
                 "RestApiId"
             ]
         },
@@ -1822,6 +1823,7 @@ def resources():
         },
         "AWS::Logs::SubscriptionFilter": {
             "importProperties": [
+                "LogGroupName",
                 "FilterName"
             ]
         },
