@@ -14,6 +14,7 @@ setup(
     ],
     scripts=[
         'stack_rename',
+        'stack_recover',
         'config_convertor',
     ],
     package_data={'libs': ['README.md'], }
