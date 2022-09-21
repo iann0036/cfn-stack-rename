@@ -95,6 +95,7 @@ class CommandCheck(object):
             self.data['state'] = dict()
 
         self.data['state'] = dict()
+        self.data['state']['root'] = state_root
         state_location = self.data['state']['location'] = f'{state_root}/{date_stamp}'
         self.data['state']['date'] = date_stamp
         stack_name = self.data['state']['stack_name'] = self.options.stack_name
@@ -113,11 +114,7 @@ class CommandCheck(object):
         self.data['state'][stack_name]['unsupported_resources'] = dict()
         self.data['state'][stack_name]['undriftable_resources'] = dict()
 
-        current_state = dict()
-        current_state['date'] = date_stamp
-
         io_handle.make_dir(path=state_location)
-        io_handle.write_json(output_file=f"{state_root}/current_state.json", data=current_state)
 
     def read_state(self, io_handle):
 

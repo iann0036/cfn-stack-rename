@@ -114,7 +114,10 @@ def main():
     config_data['state'][stack_name]['unsupported_resources'] = unsupported_imports
     config_data['state'][stack_name]['undriftable_resources'] = undriftables
     config_data['state'][stack_name]['change_set_data'] = import_resources
+    state_root = config_data['state']['root']
     state_path = config_data['state']['location']
+    current_state = dict()
+    current_state['date'] = date_stamp
 
     io_handle.write_json(output_file=f"{state_path}/state.json", data=config_data)
     io_handle.write_json(output_file=f"{state_path}/resources.json", data=stack_desc_resources)
@@ -124,6 +127,7 @@ def main():
     io_handle.write_json(output_file=f"{state_path}/unmodified_template.json", data=stack_template)
     io_handle.write_json(output_file=f"{state_path}/retain_template.json", data=retain_template)
     io_handle.write_json(output_file=f"{state_path}/change_set_template.json", data=sanitized_resource_template)
+    io_handle.write_json(output_file=f"{state_root}/current_state.json", data=current_state)
 
     # upload templates to s3 if required
     if enable_s3:
