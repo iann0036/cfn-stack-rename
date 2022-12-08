@@ -48,10 +48,12 @@ def stack_exports(stack_desc):
 
 def stacks_importing_exports(aws_client, exports):
     stacks_importing = dict()
+    logging.debug(f'Exports currently: {exports}')
     for export_name, export_value in exports.items():
+        logging.debug(f'Scanning {export_name} with value: {export_value}')
         response = aws_client.cfn_list_imports(export_name)
         if not response:
-            logging.info("Good News: This Stack does not have any exports imported by other stacks")
+            logging.info(f'Good News: {export_name} is not imported by other stacks')
             continue
         for stack in response['Imports']:
             if stack not in stacks_importing:
@@ -66,7 +68,7 @@ def stacks_importing_exports(aws_client, exports):
                     stacks_importing[stack] = list()
                 stacks_importing[stack].append(export_name)
 
-    if len(stacks_importing) > 1:
+    if len(stacks_importing) > 0:
         logging.error(f'The Following stacks are importing resources from this stack:')
         for stack_name, stack_imports in stacks_importing.items():
             for import_name in stack_imports:

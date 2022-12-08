@@ -180,8 +180,12 @@ class FileHandler(object):
                                              explicit_start=True))
 
     def write_json(self, output_file=None, data=None):
-        if not output_file or not data:
-            logging.error("Error Data / Output File Not Provided")
+        logging.debug(f'Creating: {output_file}')
+        if not output_file:
+            logging.error("Error Output File Not Provided")
+            sys.exit(1)
+        if data is None:
+            logging.error("Error Data Not Provided")
             sys.exit(1)
         self.make_dir(path=output_file)
         # making sure all objects are json serialized - converting
