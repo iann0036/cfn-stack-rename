@@ -1,0 +1,15 @@
+---
+
+configs:
+  resource_identifier_file: "configs/cloudformation.yaml"
+
+aws:
+  region: 'eu-west-2'
+
+
+## logging
+## can be debug, info, warning, error or critical
+logging_config:
+  log_level: 'info'
+  log_file: 'logs/stack_rename.log'
+  log_file_level: 'info'

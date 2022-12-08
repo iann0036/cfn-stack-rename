@@ -1,0 +1,143 @@
+#!/usr/bin/env python3
+import os.path
+from libs import command_parser, command_checker, custom_logger, file_handler, aws_handler
+from libs import cloudformation_recover as cfn
+from datetime import datetime
+
+__version__ = '0.99beta1'
+
+
+def main():
+    stack_name = state_data['state']['stack_name']
+    new_stack_name = state_data['state']['new_stack']
+    cur_date_stamp = datetime.utcnow().strftime("%d%b%Y-%H%M%S")
+    changeset_name = f'stack-recover-{cur_date_stamp}'
+    stack_params = state_data['state'][stack_name]['params']
+    import_resources = state_data['state'][stack_name]['change_set_data']
+    supported_resources = state_data['state'][stack_name]['supported_resources']
+    change_set_data = state_data['state'][stack_name]['change_set_data']
+    state_path = state_data['state']['location']
+    stack_id = state_data['state'][stack_name]['stack_id']
+    s3_enable = state_data['s3']['enable']
+    s3_bucket = state_data['s3']['bucket']
+    s3_path = state_data['s3']['path']
+    s3_uri = state_data['s3']['uri']
+    changeset_url = None
+    update_url = None
+    new_stack_id = None
+
+    stack_template = io_handle.read_file(config_file=f'{state_path}/unmodified_template.json')
+    sanitized_template = io_handle.read_file(config_file=f'{state_path}/change_set_template.json')
+
+    cfn_client = aws_handler.AWS(data=state_data)
+    cfn_client.login()
+    cfn_client.cfn_client()
+
+    if s3_enable:
+        s3_client = aws_handler.AWS(data=state_data)
+        s3_client.login()
+        s3_client.s3_client()
+
+    new_stack_desc = cfn_client.cfn_describe_stack(stack_name=new_stack_name)
+    if new_stack_desc:
+        new_stack_id = new_stack_desc['StackId']
+
+    changeset_data, sanitized_data, resources_removed = cfn.recover_data(supported_resources,
+                                                                         sanitized_template,
+                                                                         change_set_data)
+
+    # upload templates to s3 if required
+    if s3_enable:
+        changeset_file = f's3-templates/{cur_date_stamp}/changeset_{new_stack_name}.json'
+        update_file = f's3-templates/{cur_date_stamp}/update_{new_stack_name}.json'
+        changeset_url = f"{s3_uri}/{os.path.basename(changeset_file)}"
+        update_url = f"{s3_uri}/{os.path.basename(update_file)}"
+
+        io_handle.write_json(output_file=changeset_file, data=sanitized_data)
+        io_handle.write_json(output_file=update_file, data=stack_template)
+
+        changeset_upload_success = s3_client.upload_s3(changeset_file)
+        update_upload_success = s3_client.upload_s3(update_file)
+
+        if not changeset_upload_success:
+            raise ValueError(f'Failed to upload template {changeset_file} to: {changeset_url}')
+        if not update_upload_success:
+            raise ValueError(f'Failed to upload template {update_file} to: {update_url}')
+
+        logging.info(f'Successfully uploaded template {changeset_file} to: {changeset_url}')
+        logging.info(f'Successfully uploaded template {update_file} to: {update_url}')
+
+    # should we delete the failed new_stack ?
+    if new_stack_id:
+        verify_delete = cfn.verify_action('Delete', new_stack_id)
+        if verify_delete:
+            delete_response = cfn_client.cfn_delete_stack(stack_id=new_stack_id)
+            cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_delete_complete')
+
+    verify_create_changeset = cfn.verify_action('Create ChangeSet', new_stack_name)
+    if verify_create_changeset:
+        if s3_enable:
+            new_stack_id, changeset_response = cfn_client.cfn_s3_create_changeset(new_stack_name,
+                                                                                  changeset_url,
+                                                                                  changeset_data,
+                                                                                  params=stack_params,
+                                                                                  changeset_name=changeset_name)
+        else:
+            new_stack_id, changeset_response = cfn_client.cfn_create_changeset(new_stack_name,
+                                                                               sanitized_data,
+                                                                               changeset_data,
+                                                                               params=stack_params,
+                                                                               changeset_name=changeset_name)
+        cfn_client.cfn_waiter(stack_id=new_stack_id,
+                              waiter_type='change_set_create_complete',
+                              changeset_name=changeset_name)
+
+    # if the stack was deleted we need to get the stack id again
+    new_stack_desc = cfn_client.cfn_describe_stack(stack_name=new_stack_name)
+    if new_stack_desc:
+        new_stack_id = new_stack_desc['StackId']
+
+    verify_exec_changeset = cfn.verify_action('Execute ChangeSet', new_stack_id)
+    if verify_exec_changeset:
+        cfn_client.cfn_exec_changeset(changeset_name=changeset_name, stack_id=new_stack_id)
+        cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_import_complete')
+
+    logging.info("Cleaning up - Applying the original Template on to the new stack.")
+
+    verify_update_new_stack = cfn.verify_action('Update', new_stack_id)
+    if verify_update_new_stack:
+        if s3_enable:
+            cfn_client.cfn_s3_update_stack(new_stack_id, update_url, params=stack_params)
+        else:
+            cfn_client.cfn_update_stack(new_stack_id, stack_template, params=stack_params)
+
+        cfn_client.cfn_waiter(stack_id=new_stack_id, waiter_type='stack_update_complete')
+
+    logging.warning(f'All complete \nIf you removed imports that this stack exported in any other stack '
+                    f'please update those stacks and add in the imports.\n'
+                    f'If the import name includes the stack name please make sure to update to include the new '
+                    f'stack name {new_stack_name}\n'
+                    f'If you deploy using a pipeline please make sure the pipeline is aware of the new '
+                    f'stack name {new_stack_name} for deployment')
+
+    logging.info(f'Successfully renamed stack from: {stack_name} to {new_stack_name}')
+
+
+if __name__ == "__main__":
+    name = 'stack_recover'
+    # initialise the command line checker, add in all of the options
+    cmd_opts = command_parser.Commands(name=name, version=__version__)
+    cmd_opts.add_config()
+    cmd_opts.add_timestamp()
+    options, arg_parser = cmd_opts.set_options()
+    # set up the logging
+    logging = custom_logger.colourLog(name=name, config_file=options.config)
+    # set up the io handling
+    io_handle = file_handler.FileHandler()
+    # initialise the config data
+    config_data = io_handle.read_file(options.config)
+    # parse through the provided options make sure everything is set as required
+    # also do init sanity checks and config fixes/population
+    cmd_check = command_checker.CommandCheck(options=options, parser=arg_parser, config_data=config_data)
+    date_stamp, state_data = cmd_check.read_state(io_handle)
+    main()
