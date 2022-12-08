@@ -1,6 +1,2 @@
 boto3
 cfn-flip
-botocore>=1.18.8
-awscli>=1.18.149
-pyyaml>=5
-ruamel.yaml>=0.16.0
