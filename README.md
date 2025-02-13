@@ -1,4 +1,6 @@
-# CloudFormation Stack Rename
+# DEPRECATED - See https://github.com/iann0036/cfn-stack-rename instead!
+
+## CloudFormation Stack Rename
 
 The following script will programmatically perform the following steps:
 
