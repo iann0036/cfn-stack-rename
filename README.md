@@ -1,4 +1,4 @@
-# DEPRECATED - See https://github.com/iann0036/cfn-stack-rename instead!
+# DEPRECATED - See https://aws.amazon.com/blogs/devops/introducing-aws-cloudformation-stack-refactoring/ instead!
 
 ## CloudFormation Stack Rename
 
